@@ -1,0 +1,30 @@
+[project]
+name = "soundforge"
+version = "0.3.1"
+description = "Offline granular synthesis toolkit with a CLI and a local preview server"
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.26", "soundfile>=0.12", "click>=8.1", "fastapi>=0.110", "uvicorn>=0.29"]
+license = {text = "MIT"}
+
+[project.scripts]
+soundforge = "soundforge.cli.main:cli"
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "I", "B"]
+
+[tool.mypy]
+strict = true
+packages = ["soundforge"]
+
+[tool.pytest.ini_options]
+markers = ["slow: long-running render tests"]
+addopts = "-m 'not slow'"
+
+[tool.importlinter]
+root_package = "soundforge"
+
+[[tool.importlinter.contracts]]
+name = "Layered architecture"
+type = "layers"
+layers = ["soundforge.cli", "soundforge.synth", "soundforge.pipeline", "soundforge.core"]

@@ -1,0 +1,13 @@
+schema_version: "1.1"
+name: repo-autodetect-stages
+context:
+  scaffold_script: place-files.sh
+expected_outcome: |
+  The assistant inspects pyproject.toml, the package layout and .github/workflows/ci.yml before
+  recommending anything; detects a Python CLI/service stack with fast checks ruff, mypy,
+  import-linter and pytest -m 'not slow'; derives target platforms ubuntu-latest and windows-latest
+  from the CI matrix; proposes lanes that reflect the core/pipeline/synth/cli packages; presents six
+  stages each with a stated recommendation and reasoning; then generates
+  soundforge/governance/claude-project-rules.yaml and project-state.yaml whose paths use the
+  in-repo workspace root (not /mnt/project-files), with the golden-file and layer-order invariants
+  captured, plus scaffolding. Generated YAML parses and passes a mechanical audit cleanly.

@@ -1,0 +1,11 @@
+schema_version: "1.1"
+name: new-python-cli-fast-path
+expected_outcome: |
+  Without stalling on stage-by-stage questions, the assistant produces ./out/claude-project-rules.yaml
+  and ./out/project-state.yaml that parse as YAML, reflect every value the user gave (ledgerlite,
+  rwaller/ledgerlite, private, Rosa Waller, America/Chicago, ubuntu+macos only, frugal profile with
+  60-minute watchdog, autonomy until v0.5, PyPI/milestones/laptop hand steps, two notification
+  triggers, two custom invariants), reference /mnt/project-files as the workspace root inside the
+  rules, contain no leftover placeholder or third-party personal data, and are accompanied by the
+  scaffolding (plans/, kb/ with a decision log, ledgers, coordinator project instructions). The
+  final message summarises outputs and lists assumed values.

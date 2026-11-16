@@ -1,0 +1,178 @@
+# tidewatch: reusable project rules for multi-thread Claude execution
+# Hand-maintained since v0.2; last cleaned up before the release crunch.
+
+version: 2.3.0
+date: 2026-09-14
+project: tidewatch
+repository: harborlabs/tidewatch
+public_repo: true
+owner: "Mika (GitHub mika-harbor)"
+time_zone_owner: "Europe/Amsterdam"
+
+authority:
+  - project_instructions
+  - kb_decision_log
+  - owner_messages
+  - project_memory
+  - repo_claude_md
+
+project_profile:
+  stack_preset: python_cli_or_service
+  target_platforms: [ubuntu-latest, macos-latest, windows-latest]
+  fast_checks: "ruff, mypy, pytest -m 'not slow'"
+  local_environment: "macOS, zsh"
+  local_clone_path: "~/code/tidewatch"
+  execution_lanes: [core_pipeline, ingest, app_cli, docs_release]
+  file_ownership_labels: [lane:core, lane:pipeline, lane:ingest, lane:app, lane:cli, lane:docs]
+  lane_mapping_note: "core_pipeline owns pipeline; ingest owns ingest; app_cli owns app and cli."
+  state_file: /mnt/project-files/project-state.yaml
+
+execution_profile:
+  model_routing:
+    coordinator: "Fable 5.1"
+    implementation_and_critical_review: "Opus 5.5 high"
+    standard_review_audit_and_kb: "Opus 5.5 medium"
+  token_economy:
+    profile_name: balanced
+    max_concurrent_lanes: 3
+    replace_at_compressions: 2
+    watchdog_interval_minutes: 60
+    watchdog_max_nudges: 3
+    non_critical_max_review_rounds: 2
+    critical_max_review_rounds: 6
+    batch_audit_mode: light_every_batch
+    kb_pr_cadence: daily
+    reporting_verbosity: terse_batched
+    offload_heavy_checks_to_ci: true
+
+active_now:
+  paused: false
+  slow_down: false
+  active_milestones: [v0.3, v0.4]
+  owner_autonomy_message_ids: [msg_8812]
+
+meta:
+  - id: META-01
+    applies_to: all
+    rule: "Modifying this ruleset file is critical and requires explicit owner approval; threads never alter governance rules unilaterally."
+
+roles:
+  - id: ROLE-01
+    applies_to: owner
+    rule: "The owner defines goals, roadmap, milestones, release themes, and product scope, and may override any Claude-decided entry at any time."
+  - id: ROLE-04
+    applies_to: coordinator
+    rule: "The coordinator splits work into lane batches, manages thread lifecycles, approves plans, logs non-scope decisions with sequential D-numbers, relays exact fix lists, grants merge go, and runs fitness checks."
+  - id: ROLE-06
+    applies_to: implementation
+    rule: "An implementation thread reads the newest KB, plans, and decision log, posts a plan before coding, implements and tests strictly within its lane, opens the PR, and answers review findings with exact fix lists. It never merges, pushes to main, or force-pushes."
+  - id: ROLE-07
+    applies_to: review
+    rule: "A review thread is never the PR author. It reviews all PRs of a batch in rounds, writes round reports, inspects CI checks, and squash-merges only on the coordinator's explicit go."
+  - id: ROLE-08
+    applies_to: kb
+    rule: "The KB thread compiles pending decisions into the daily decision-log PR and self-merges it without code review."
+
+autonomy:
+  - id: AUTO-01
+    applies_to: coordinator
+    rule: "Coordinator reviews, approves merges, and makes technical/process decisions autonomously until v1.0 is finished, keeping all testing and review gates intact."
+  - id: AUTO-02
+    applies_to: coordinator
+    rule: "Any decision altering product scope, external contracts, or roadmap waits for explicit owner approval."
+  - id: AUTO-03
+    applies_to: coordinator
+    rule: "If a critical PR is still open after round 4, the coordinator may approve and merge it without owner involvement to keep velocity up."
+
+lanes:
+  - id: LANE-01
+    applies_to: coordinator
+    rule: "PRs are batched by execution lane rather than single issues; small follow-ups fold into the lane's next PR."
+  - id: LANE-02
+    applies_to: coordinator
+    rule: "Concurrent implementation threads must not exceed execution_profile.token_economy.max_concurrent_lanes (at most one active thread per execution lane)."
+  - id: LANE-02
+    applies_to: implementation
+    rule: "A PR modifies files within its mapped file-ownership labels only. Touching shared core files requires lane:infra and acts as a single-threaded lock across lanes; docs may be updated by any lane."
+  - id: LANE-04
+    rule: "While a release/X.Y branch is open, one dedicated release thread may run concurrently alongside the app/release lane thread."
+
+threads_and_watchdog:
+  - id: THR-01
+    applies_to: coordinator
+    rule: "Every new thread reads the latest KB, plans, and decision log before acting. Before receiving a second batch, a thread must pass a fitness check."
+  - id: THR-02
+    applies_to: all
+    rule: "Any thread reaching execution_profile.token_economy.replace_at_compressions is replaced immediately, even mid-review or mid-commit, so that compressed context never leaks into a merge decision."
+  - id: THR-03
+    applies_to: coordinator
+    rule: "Whenever a thread owes output, the coordinator sets a watchdog timer at watchdog_interval_minutes. After watchdog_max_nudges without progress, the coordinator replaces the stalled thread or escalates to the owner."
+  - id: THR-05
+    applies_to: all
+    rule: "Thread freeze was active during the v0.2 release crunch (lifted 2026-09-01); the 'dont start new threads' command remains documented here for reference."
+
+plans_and_criticality:
+  - id: PLAN-01
+    applies_to: implementation
+    rule: "Every implementation thread writes a numbered plan in /mnt/project-files/plans/ before writing tests or code. Deviating from an approved plan requires a new coordinator D-number."
+  - id: CRIT-01
+    applies_to: all
+    rule: "A change is critical if it touches layer contracts, core data structures, KB process/architecture docs, golden/regression files, packaging/release/CI, safety mechanisms, licences, user-file deletion paths, network calls, or carries risk:high."
+  - id: CRIT-02
+    applies_to: all
+    rule: "Critical work requires coordinator plan approval, review on implementation_and_critical_review model, exact fix lists, issues for all deferred items, and full multi-platform CI on the final round."
+
+pull_requests_and_reviews:
+  - id: PR-01
+    applies_to: implementation
+    rule: "PR title format: '<area>: <outcome> (#N)'. Closing keywords (Closes #N) belong in the PR body only, never in branch commit messages."
+  - id: PR-03
+    applies_to: implementation
+    rule: "Freeze the branch during an active review round except for requested fix commits (one fix commit per round). Never force-push."
+  - id: REV-01
+    applies_to: review
+    rule: "Non-critical PRs run up to execution_profile.token_economy.non_critical_max_review_rounds (deferring leftovers to issues). Critical PRs run up to round 4, then hit a hard stop requiring owner sign-off."
+  - id: MRG-01
+    applies_to: review
+    rule: "Squash-merge only on explicit coordinator go, pinned to the reviewed head SHA, with required CI green. If behind main, update via merge commit (never force-push), re-verify diff and CI, and merge on the new SHA."
+
+testing_and_ci:
+  - id: TST-01
+    applies_to: implementation
+    rule: "Tests come first: failing test for bugs, characterisation test before refactoring, and regression test before behaviour changes."
+  - id: CI-01
+    applies_to: all
+    rule: "Fast checks run automatically on PRs; full target_platforms matrix runs on main and via explicit full-CI dispatch on critical PRs."
+  - id: CI-02
+    applies_to: all
+    rule: "To save Actions minutes, release/** branches run ubuntu-only CI. This applies to every PR into a release branch regardless of criticality."
+
+github_kb_and_release:
+  - id: GH-01
+    applies_to: all
+    rule: "Every deferred item or flaky test gets a GitHub issue with milestone, lane label, and risk label the same day."
+  - id: KB-01
+    applies_to: all
+    rule: "All decisions (owner and Claude) are logged sequentially in the KB decision log. KB PRs reference code PRs without closing keywords."
+  - id: KB-02
+    applies_to: review
+    rule: "Every KB PR, including the daily decision-log PR, requires a full review round before merge because KB docs are critical."
+  - id: REL-01
+    applies_to: all
+    rule: "Cut release/X.Y from the release-ready main merge commit. Release fixes land via PR on release/X.Y and port verbatim to main."
+
+commands_history:
+  - 2026-08-20 "slow down" (owner) - lifted 2026-08-22
+  - 2026-08-30 "dont start new threads" (owner) - lifted 2026-09-01
+  - 2026-09-05 "pause all threads" (owner) - lifted 2026-09-05
+
+hard_invariants_and_owner_prefs:
+  - id: INV-01
+    applies_to: implementation
+    rule: "Licence gate: every new dependency names its licence in the PR body. Banned licences: AGPL, SSPL, non-commercial, unclear."
+  - id: INV-03
+    applies_to: implementation
+    rule: "Zero telemetry, analytics, crash uploads, or unrequested network calls. Local web UIs bind strictly to 127.0.0.1."
+  - id: PREF-01
+    applies_to: all
+    rule: "Shell commands for Mika contain no inline comments inside code blocks; explanations go outside. Report times in Europe/Amsterdam."
