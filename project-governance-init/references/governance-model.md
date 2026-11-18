@@ -13,6 +13,7 @@ It describes the system the generator encodes, not the generator itself.
 6. The five architectural invariants ("D-703")
 7. What the generated files contain (rule catalog)
 8. Acceptance contracts, issues and the roadmap
+9. Cache-aware habits
 
 ---
 
@@ -50,8 +51,7 @@ ledgers, it is replaced at its first compression (`THR-05`). The dispatcher is
 on by default; turn it off only for a small project with one or two lanes.
 
 **The coordinator is the one thread that is never replaced** (`THR-02`,
-`THR-06`). It lives for the whole project, and the design goal is that it never
-compresses: it reads summaries, ledgers and state files only, hands every
+`THR-06`). It lives for the whole project and stays small: it reads summaries, ledgers and state files only, hands every
 lookup to a worker, and writes what it knows to `project-state.yaml` and the
 decision log at each hand-off, so that a compression, if one happens anyway,
 loses nothing. Every other thread is disposable by design.
@@ -105,7 +105,8 @@ step's working state and produces half-written reports or orphaned branches.
 
 The **watchdog** is the coordinator's (or dispatcher's) timer: whenever a thread
 owes output, it looks at the thread's last commit or file change after
-`watchdog_interval_minutes` and nudges only when nothing moved; after
+`watchdog_interval_minutes` and acts only when nothing moved: a nudge while the
+cache is warm, a fresh thread from the files once it is not; after
 `watchdog_max_nudges` without progress it replaces the thread or escalates.
 Shorter intervals cost coordinator tokens; longer ones cost wall-clock time.
 
@@ -136,6 +137,8 @@ where bad models cost the most.
 | max_velocity | 3 | 2 | 30 min | 2 | full_every_batch | daily | standard |
 
 `goal_turn_cap` (20 / 30 / 40) bounds a `/goal` loop on contract criteria.
+`cache_ttl_minutes` (60 or 5) is not part of a profile; it follows from how
+the owner pays (section 9).
 
 Pick **frugal** for solo side projects, long autonomy horizons, or private
 repos paying for Actions minutes. Pick **balanced** by default. Pick
@@ -180,7 +183,7 @@ D-001. The invariants are the things that, when violated, caused real damage:
 | `roles` | ROLE-01..11 | one rule per role, plus owner hand steps and the approval rule; ROLE-10 (specify) and ROLE-11 (dispatcher) only when enabled |
 | `autonomy` | AUTO-01..03 | horizon, what waits for the owner, working ahead |
 | `lanes` | LANE-01..04 | batching, concurrency cap, ownership + infra lock, release-branch exception |
-| `threads_and_watchdog` | THR-01..06 | onboarding + fitness check, atomic replacement, watchdog, where plans/reports go |
+| `threads_and_watchdog` | THR-01..11 | onboarding + fitness check, atomic replacement, watchdog, where plans/reports go |
 | `plans_and_criticality` | PLAN-01..06, CRIT-01..02 | plan-before-code, acceptance contracts (PLAN-03..06, when `acceptance_contracts` is on), what is critical, what critical requires |
 | `pull_requests_and_reviews` | PR-01..03, REV-01..03, MRG-01 | title format, CI-before-review, branch freeze, round caps, report format, criterion proof (REV-03), merge protocol |
 | `testing_and_ci` | TST-01..02, CI-01 | tests first, never weaken tests, fast vs full matrix |
@@ -216,3 +219,48 @@ Criteria are written in exactly one place, the contract. Issues cite them;
 active. A change in *what done means* goes back through specify; a change in
 *how* something is built stays a coordinator decision with a D-number
 (`PLAN-01`). Method and details: `references/acceptance-contracts.md`.
+
+## 9. Cache-aware habits
+
+Usage is driven by cache misses, not by how much text exists. While a thread
+is active, its history is re-read from the prompt cache at a small fraction of
+the input price. Once the cache has expired (60 minutes on a Pro/Max
+subscription, 5 on an API key or usage credits: `cache_ttl_minutes`), the next
+message writes the whole history again. Fewer raw tokens is therefore not the
+same as less usage, and the size of a file matters less than how often it is
+re-sent uncached.
+
+Evidence: [claude-code-usage-analysis](https://github.com/inevolin/claude-code-usage-analysis)
+(live runs on the Claude Code CLI, Opus 5.5, 5-minute cache).
+
+| Finding | Measured | What the ruleset does with it |
+|---|---|---|
+| Resuming a 97k-token session after the cache expired | about 10x a fresh session (1.5x while warm); break-even near 10k tokens of history | Workers are not woken after the gap; a fresh thread starts from a three-line handoff (`THR-07`, `THR-03`) |
+| Compacting after the break instead of before | 9.7x vs 2.5x | Handoffs are written before a wait, not reconstructed after it (`THR-07`) |
+| Small related fixes in one warm session vs a new session each | 28% less (n=1) | Related fixes go back to back to the warm thread (`THR-08`) |
+| A test log left in the chat | +15% (750 tokens) to +64% (5,000) over the next six turns | Tool output stays out of the chat (`THR-10`) |
+| Turning off a tool mid-session; switching model (from the docs) | 22x a normal turn; full re-read | One model and tool set per thread (`THR-09`) |
+| Scheduled runs that resume an old session | about 3x a fresh session each run (estimate) | Threads are disposable and state lives in files (`THR-02`, `THR-05`) |
+| Claude Desktop Code tab vs the CLI for the same fix | at least 1.80x (n=1) | Not a rule; prefer the CLI for Claude Code worker threads where there is a choice |
+
+Limits to keep in mind when explaining this: small samples, one model, the
+5-minute cache only (the 60-minute numbers are estimates), Claude Code only
+(claude.ai chats were not measured), and subscription limits use weights that
+are not published. The study's compaction-threshold settings did not hold up
+against its own live runs and are deliberately not adopted here.
+
+**The coordinator is the exception that pays.** It is never replaced, so every
+wake-up after the cache lifetime re-sends its whole context. That cost grows
+with its context and with the number of wake-ups, which is why `THR-06` keeps
+it small and why decisions for the owner and reports from the dispatcher are
+batched. It also compacts on purpose rather than by accident: at a pause and
+at the end of each batch it writes state and, above
+`coordinator_compact_at_tokens` (default 50,000; 0 turns this off), hands the
+owner the `/compact Keep: ...` line to paste while the cache is still warm
+(`THR-11`). Compacting before a wait cost 2.5x a fresh session in the study,
+after it 9.7x. The owner types the command; nothing documented lets the
+coordinator run it itself, and it exists in Claude Code only. As a safety net,
+Claude Code's `idleCompaction` setting can compact a long idle conversation on
+the one-hour cache shortly before the cache expires; per the study it only
+applies above 200,000 tokens of context, so a small coordinator will not
+trigger it.

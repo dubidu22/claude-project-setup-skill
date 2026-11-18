@@ -10,7 +10,7 @@ One skill, three jobs, one shared knowledge base:
 - **Specify** (`specify.md`): turns a brief feature idea or a change of plans into an acceptance contract with researched, testable criteria, a few work packages that become GitHub issues, and an updated roadmap. Short interview first; drafts only until the owner approves; issues are created only on the owner's yes.
 - **Audit** (`audit.md`): checks an existing ruleset, state file, roadmap and acceptance contracts for contradictions, unclear roles, stale state, untestable criteria and token bloat. Read-only: it reports and proposes exact fixes, and changes nothing.
 
-All three work from the same model in `references/`: roles and lanes, coordinator load and token economy, and owner-approved acceptance contracts per milestone.
+All three work from the same model in `references/`: roles and lanes, coordinator load and token economy, cache-aware thread habits, and owner-approved acceptance contracts per milestone.
 
 ## Layout
 

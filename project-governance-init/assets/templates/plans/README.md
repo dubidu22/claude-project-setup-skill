@@ -16,6 +16,10 @@ An acceptance contract states the milestone's goal sentence, sourced criteria
 Approved contracts are frozen by `approval.hash`: a change is a new version with
 a new D-number. Worker threads read `contract_tool.py brief`, not the whole file;
 run the tool, never read its source.
+Every plan and round report ends with a three-line handoff, kept current:
+`Goal:` what this thread is for, `Done:` what is finished and where,
+`Next:` the next step. A fresh thread starts from those three lines (`THR-07`).
+
 A plan states: goal, the contract criterion ids it covers, lane and labels,
 files it expects to touch, tests it will add first, open questions. A round report states: head SHA, verdict, verified
 checks, numbered findings (B/M must-fix, S should-fix, N note) and, on the next

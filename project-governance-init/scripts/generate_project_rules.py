@@ -18,7 +18,7 @@ stack_key, fast_checks, target_platforms, coordinator_model, critical_worker_mod
 standard_worker_model, profile_key, token_cfg{...}, autonomy_horizon, round4_hard_stop,
 owner_hand_steps, notify_triggers, execution_lanes, ownership_labels, lane_mapping_note,
 allow_parallel_release_branch, no_telemetry, banned_licences, custom_invariants,
-acceptance_contracts, dispatcher, active_milestones, today.
+acceptance_contracts, dispatcher, cache_ttl_minutes, coordinator_compact_at_tokens, active_milestones, today.
 
 `workspace_root` is where shared files (plans/, project-state.yaml) live: the
 claude.ai Project mount `/mnt/project-files` or a folder inside a repo checkout.
@@ -215,6 +215,8 @@ def default_config(project_name: str = "my-project") -> dict[str, Any]:
         "custom_invariants": [],
         "acceptance_contracts": True,
         "dispatcher": True,
+        "cache_ttl_minutes": 60,
+        "coordinator_compact_at_tokens": 50000,
         "active_milestones": ["v0.1"],
     }
 
@@ -310,6 +312,16 @@ def run_wizard() -> dict[str, Any]:
         "balanced",
     )
     token_cfg = dict(TOKEN_PROFILES[profile_key])
+    coordinator_compact_at_tokens = int(
+        ask("Coordinator context size (tokens) above which it suggests a planned /compact at a pause or batch end (0 = never)", "50000")
+    )
+    cache_ttl_minutes = int(
+        ask_choice(
+            "Prompt cache lifetime in minutes (60 on a Pro/Max subscription, 5 on an API key or usage credits)",
+            ["60", "5"],
+            "60",
+        )
+    )
 
     if ask_bool("Customize individual token profile numbers?", False):
         token_cfg["max_concurrent_lanes"] = int(
@@ -416,6 +428,8 @@ def run_wizard() -> dict[str, Any]:
         "critical_worker_model": critical_worker_model,
         "standard_worker_model": standard_worker_model,
         "profile_key": profile_key,
+        "cache_ttl_minutes": cache_ttl_minutes,
+        "coordinator_compact_at_tokens": coordinator_compact_at_tokens,
         "token_cfg": token_cfg,
         "autonomy_horizon": autonomy_horizon,
         "round4_hard_stop": round4_hard_stop,
@@ -566,6 +580,8 @@ def render_rules_yaml(cfg: dict[str, Any]) -> str:
         f"    reporting_verbosity: {t['reporting_verbosity']}",
         f"    offload_heavy_checks_to_ci: {str(t['offload_heavy_checks_to_ci']).lower()}",
         f"    goal_turn_cap: {t['goal_turn_cap']}",
+        f"    cache_ttl_minutes: {int(cfg.get('cache_ttl_minutes', 60))}",
+        f"    coordinator_compact_at_tokens: {int(cfg.get('coordinator_compact_at_tokens', 50000))}",
         "",
         "meta:",
         "  - id: META-01",
@@ -652,14 +668,35 @@ def render_rules_yaml(cfg: dict[str, Any]) -> str:
         '    rule: "Any worker thread (including the KB thread) reaching execution_profile.token_economy.replace_at_compressions finishes its current atomic step (review round, fix commit, or KB PR) and is replaced at the next hand-off, never mid-step. The coordinator is never replaced."',
         "  - id: THR-03",
         f"    applies_to: {ops}",
-        f"    rule: {yaml_quote('Whenever a thread owes output, the ' + ops + ' checks its last commit or file change after watchdog_interval_minutes and nudges only when nothing moved. After watchdog_max_nudges without progress, the ' + ops + ' replaces the stalled thread or escalates to the ' + ('coordinator' if disp else 'owner') + '.')}",
+        f"    rule: {yaml_quote('Whenever a thread owes output, the ' + ops + ' checks its last commit or file change after watchdog_interval_minutes and acts only when nothing moved: within cache_ttl_minutes it nudges (at most watchdog_max_nudges), after that it replaces the thread from its files or escalates to the ' + ('coordinator' if disp else 'owner') + '.')}",
         "  - id: THR-04",
         "    applies_to: all",
         f"    rule: {yaml_quote('Threads write plans and round reports under ' + ws + '/plans/ and post one line per hand-off in chat (what was written, where). Fix lists travel through round reports, not through the coordinator. Re-read shared files immediately before writing to avoid sync lag.')}",
         *dispatcher_thread_rules,
         "  - id: THR-06",
         "    applies_to: coordinator",
-        f"    rule: {yaml_quote('The coordinator lives for the whole project and keeps its context small enough not to compress: it reads summaries, ledgers and state files, never diffs, logs, research or whole contracts, and hands lookups to worker threads. It writes what it knows to ' + ws + '/project-state.yaml and the decision log at each hand-off, and re-reads them and the rules after any compression.')}",
+        f"    rule: {yaml_quote('The coordinator lives for the whole project and keeps its context small: it reads summaries, ledgers and state files, never diffs, logs, research or whole contracts, and hands lookups to a thread that is already running. It writes what it knows to ' + ws + '/project-state.yaml and the decision log at each hand-off, and re-reads them and the rules after any compression.')}",
+        *(
+            [
+                "  - id: THR-11",
+                "    applies_to: coordinator",
+                '    rule: "At a pause and at the end of each batch, after writing state: if your context is above execution_profile.token_economy.coordinator_compact_at_tokens, give the owner this line to paste while the cache is warm: /compact Keep: active milestone, open decisions, next batch. Claude Code only; do not wait for it."',
+            ]
+            if int(cfg.get("coordinator_compact_at_tokens", 50000)) > 0
+            else []
+        ),
+        "  - id: THR-07",
+        "    applies_to: all",
+        '    rule: "A thread silent for longer than execution_profile.token_economy.cache_ttl_minutes pays for its whole history again on its next message. Before such a wait, write a three-line handoff (goal, done, next) into your plan or round report. Except for the coordinator, work that resumes after the gap goes to a fresh thread started from that handoff."',
+        "  - id: THR-08",
+        f"    applies_to: {ops}",
+        '    rule: "Give related small fixes to the thread that is already warm on that code, back to back, rather than a new thread per fix. Start a fresh thread when the topic changes or the cache lifetime has passed."',
+        "  - id: THR-09",
+        "    applies_to: all",
+        '    rule: "A thread keeps its model and its tool set from first message to last; changing either re-sends the whole history uncached. Work that needs another model goes to another thread."',
+        "  - id: THR-10",
+        "    applies_to: all",
+        '    rule: "Keep tool output out of the chat: use quiet flags, pipe through tail -50, or write to a file and read only the failing lines. Report a check in one line."',
         "",
         "plans_and_criticality:",
         "  - id: PLAN-01",

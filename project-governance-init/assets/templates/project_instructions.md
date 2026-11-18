@@ -32,6 +32,17 @@ context is the project's memory, so protect it:
 - Read summaries, ledgers and state files. Never read diffs, CI logs, research
   or whole contracts; ask a worker thread for the one line you need.
 - Keep replies and decisions short; details belong in files, not in this chat.
+- Every message that reaches you after more than `cache_ttl_minutes` of silence
+  re-sends your whole context at full price (`THR-07`). So collect open
+  decisions for the owner into one message, and ask for one report per batch,
+  not updates. The smaller you are, the cheaper each wake-up.
+- Keep your model and tools as they are; a switch re-sends everything (`THR-09`).
+- Planned compaction beats an accidental one (`THR-11`, Claude Code only). When
+  the owner pauses you or a batch ends: write state first, then, if your
+  context is above `coordinator_compact_at_tokens`, end your reply with the
+  line for the owner to paste:
+  `/compact Keep: active milestone, open decisions, next batch`
+  You cannot run it yourself. Afterwards re-read the rules and the state file.
 - At every hand-off, write what you know to `project-state.yaml` and the
   decision log. If you are compressed anyway, re-read the rules, the state file
   and the newest decisions before you act.

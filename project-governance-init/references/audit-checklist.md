@@ -58,8 +58,26 @@ Check each pair explicitly and quote both rule ids in the finding.
 
 ## 4. Token efficiency
 
-Every token in the ruleset is multiplied by the number of threads and the
-number of compressions. Flag:
+Rank token findings by how often something is re-sent uncached, not by its
+size (governance-model section 9). First, habits that throw the cache away:
+
+- threads woken after more than `cache_ttl_minutes` instead of being replaced
+  from a handoff (look for long gaps between entries of one thread in the
+  ledgers and round reports); a watchdog rule that nudges cold threads
+- a rule or routine that changes a thread's model or tool set mid-thread (for
+  example one review thread switching models between critical and regular PRs)
+- logs, diffs or full tool output pasted into chat or written into round
+  reports that other threads then read
+- a new thread spawned per small fix while a warm thread on the same code exists
+- the coordinator woken many times a day for single questions or status
+  updates, or reading diffs, logs or whole contracts
+- plans and round reports without a current three-line handoff
+- a coordinator rule that forbids compaction outright, or one that has the
+  coordinator compact after a long wait instead of before it
+- `cache_ttl_minutes` that does not match how the owner pays (60 on a
+  subscription, 5 on an API key or usage credits)
+
+Then the text every thread reads at its start. Flag:
 
 - more than ~60 rules, or any rule over ~450 characters that could be two
 - duplicated wording (same rule stated in two sections)

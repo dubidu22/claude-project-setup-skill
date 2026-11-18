@@ -57,6 +57,8 @@ execution_profile:
     reporting_verbosity: ultra_terse
     offload_heavy_checks_to_ci: true
     goal_turn_cap: 20
+    cache_ttl_minutes: 60
+    coordinator_compact_at_tokens: 50000
 
 meta:
   - id: META-01
@@ -135,7 +137,7 @@ threads_and_watchdog:
     rule: "Any worker thread (including the KB thread) reaching execution_profile.token_economy.replace_at_compressions finishes its current atomic step (review round, fix commit, or KB PR) and is replaced at the next hand-off, never mid-step. The coordinator is never replaced."
   - id: THR-03
     applies_to: dispatcher
-    rule: "Whenever a thread owes output, the dispatcher checks its last commit or file change after watchdog_interval_minutes and nudges only when nothing moved. After watchdog_max_nudges without progress, the dispatcher replaces the stalled thread or escalates to the coordinator."
+    rule: "Whenever a thread owes output, the dispatcher checks its last commit or file change after watchdog_interval_minutes and acts only when nothing moved: within cache_ttl_minutes it nudges (at most watchdog_max_nudges), after that it replaces the thread from its files or escalates to the coordinator."
   - id: THR-04
     applies_to: all
     rule: "Threads write plans and round reports under ./governance/plans/ and post one line per hand-off in chat (what was written, where). Fix lists travel through round reports, not through the coordinator. Re-read shared files immediately before writing to avoid sync lag."
@@ -144,7 +146,22 @@ threads_and_watchdog:
     rule: "The dispatcher keeps its whole working state in ./governance/plans/batch-<NNN>.md and the ledgers, so it is replaced at its first compression, at the next hand-off."
   - id: THR-06
     applies_to: coordinator
-    rule: "The coordinator lives for the whole project and keeps its context small enough not to compress: it reads summaries, ledgers and state files, never diffs, logs, research or whole contracts, and hands lookups to worker threads. It writes what it knows to ./governance/project-state.yaml and the decision log at each hand-off, and re-reads them and the rules after any compression."
+    rule: "The coordinator lives for the whole project and keeps its context small: it reads summaries, ledgers and state files, never diffs, logs, research or whole contracts, and hands lookups to a thread that is already running. It writes what it knows to ./governance/project-state.yaml and the decision log at each hand-off, and re-reads them and the rules after any compression."
+  - id: THR-11
+    applies_to: coordinator
+    rule: "At a pause and at the end of each batch, after writing state: if your context is above execution_profile.token_economy.coordinator_compact_at_tokens, give the owner this line to paste while the cache is warm: /compact Keep: active milestone, open decisions, next batch. Claude Code only; do not wait for it."
+  - id: THR-07
+    applies_to: all
+    rule: "A thread silent for longer than execution_profile.token_economy.cache_ttl_minutes pays for its whole history again on its next message. Before such a wait, write a three-line handoff (goal, done, next) into your plan or round report. Except for the coordinator, work that resumes after the gap goes to a fresh thread started from that handoff."
+  - id: THR-08
+    applies_to: dispatcher
+    rule: "Give related small fixes to the thread that is already warm on that code, back to back, rather than a new thread per fix. Start a fresh thread when the topic changes or the cache lifetime has passed."
+  - id: THR-09
+    applies_to: all
+    rule: "A thread keeps its model and its tool set from first message to last; changing either re-sends the whole history uncached. Work that needs another model goes to another thread."
+  - id: THR-10
+    applies_to: all
+    rule: "Keep tool output out of the chat: use quiet flags, pipe through tail -50, or write to a file and read only the failing lines. Report a check in one line."
 
 plans_and_criticality:
   - id: PLAN-01

@@ -49,7 +49,13 @@ rule exists to get real decisions, not to block when there is nobody to decide.
    and KB) and, separately, a token profile. Recommend `balanced`; offer
    `frugal` for solo or long-horizon projects and `max_velocity` when the
    owner is watching closely. Any single number may be overridden. The
-   profile table is in the reference file, section 5.
+   profile table is in the reference file, section 5. Also ask how the owner
+   pays, because it sets `cache_ttl_minutes`: 60 on a Pro/Max subscription
+   (recommend, and assume it on the fast path), 5 on an API key or usage
+   credits. The cache-aware rules (`THR-07` to `THR-11`) depend on it
+   (reference file, section 9). `coordinator_compact_at_tokens` (default
+   50000, 0 = never) is the coordinator size above which it suggests a
+   planned `/compact` at a pause or batch end.
 3. **Autonomy and owner gates**: how far the coordinator may run on its own
    ("until v1.0", "per milestone"), the round-4 hard stop on critical PRs
    (recommend on), the physical/account steps only the owner can do, and the
@@ -112,6 +118,13 @@ into the workspace. Say in the hand-over how the owner starts and changes
 work: open a new chat and specify the first milestone ("specify: <idea>");
 approve the contract there; tell the coordinator to pick it up. Plan changes
 go the same way. Do not write criteria or roadmap goals as part of init.
+
+Also pass on three owner habits that save the most (reference file, section
+9): do not poke a thread that has been silent for longer than the cache
+lifetime, tell the coordinator once and let it start a fresh one; send the
+coordinator one message with everything rather than several across the day;
+and run Claude Code worker threads in the CLI rather than the Desktop Code tab
+where there is a choice.
 
 ## Things that are easy to get wrong
 
