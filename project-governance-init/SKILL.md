@@ -1,20 +1,17 @@
 ---
 name: project-governance-init
 description: >
-  Set up or audit governance for a project run by several Claude threads (a coordinator
-  chat plus implementation, review, KB and audit threads working through lanes, PR review
-  rounds, a decision log and owner-approved acceptance contracts). Use it whenever the user
-  wants to bootstrap or regenerate a multi-thread Claude project: write
-  `claude-project-rules.yaml` / `project-state.yaml`, pick a token-economy profile, route
-  models to roles, define lanes and `lane:*` labels, set autonomy limits and owner sign-off
-  gates, add a dispatcher for an overloaded coordinator, or scaffold plans/, kb/, ledgers,
-  labels and the acceptance-contract tooling. Also use it to audit, lint or review an
-  existing ruleset, rules YAML, CLAUDE.md governance section or acceptance contract for
-  contradictions, unclear roles, stale state, untestable criteria or wasted tokens. And use
-  it to specify work: turn a brief feature idea or a change of plans into researched
-  acceptance criteria, GitHub issue drafts and an updated roadmap. Trigger even for short
-  asks like "set up the coordinator", "governance for my repo", "check my project rules",
-  "I want to add X", "specify this feature" or "my plans changed".
+  Set up, specify work for, or audit a project run by several Claude threads (a coordinator
+  chat plus implementation, review, KB and audit threads with lanes, PR review rounds, a
+  decision log and owner-approved acceptance contracts). Use it to bootstrap or regenerate
+  such a project: write `claude-project-rules.yaml` / `project-state.yaml`, pick a token
+  profile, route models, define lanes and `lane:*` labels, set autonomy limits, add a
+  dispatcher, scaffold the workspace. Use it to specify work: turn a brief feature idea or
+  a change of plans into researched acceptance criteria, GitHub issue drafts and an updated
+  roadmap. Use it to audit an existing ruleset, CLAUDE.md governance section, roadmap or
+  acceptance contract for contradictions, unclear roles, stale state, untestable criteria
+  or wasted tokens. Trigger even for short asks like "set up the coordinator", "governance
+  for my repo", "I want to add X", "my plans changed" or "check my project rules".
 ---
 
 # Project governance
