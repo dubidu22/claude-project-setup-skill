@@ -18,7 +18,7 @@ stack_key, fast_checks, target_platforms, coordinator_model, critical_worker_mod
 standard_worker_model, profile_key, token_cfg{...}, autonomy_horizon, round4_hard_stop,
 owner_hand_steps, notify_triggers, execution_lanes, ownership_labels, lane_mapping_note,
 allow_parallel_release_branch, no_telemetry, banned_licences, custom_invariants,
-active_milestones, today.
+acceptance_contracts, dispatcher, active_milestones, today.
 
 `workspace_root` is where shared files (plans/, project-state.yaml) live: the
 claude.ai Project mount `/mnt/project-files` or a folder inside a repo checkout.
@@ -48,6 +48,7 @@ TOKEN_PROFILES: dict[str, dict[str, Any]] = {
         "kb_pr_cadence": "per_milestone_or_batch",
         "reporting_verbosity": "ultra_terse",
         "offload_heavy_checks_to_ci": True,
+        "goal_turn_cap": 20,
     },
     "balanced": {
         "description": "Recommended balance of velocity, quality gates, and token efficiency.",
@@ -61,6 +62,7 @@ TOKEN_PROFILES: dict[str, dict[str, Any]] = {
         "kb_pr_cadence": "daily",
         "reporting_verbosity": "terse_batched",
         "offload_heavy_checks_to_ci": True,
+        "goal_turn_cap": 30,
     },
     "max_velocity": {
         "description": "Maximum parallel throughput and full continuous auditing.",
@@ -74,6 +76,7 @@ TOKEN_PROFILES: dict[str, dict[str, Any]] = {
         "kb_pr_cadence": "daily",
         "reporting_verbosity": "standard",
         "offload_heavy_checks_to_ci": True,
+        "goal_turn_cap": 40,
     },
 }
 
@@ -210,6 +213,8 @@ def default_config(project_name: str = "my-project") -> dict[str, Any]:
         "no_telemetry": True,
         "banned_licences": ["AGPL", "SSPL", "non-commercial", "unclear"],
         "custom_invariants": [],
+        "acceptance_contracts": True,
+        "dispatcher": True,
         "active_milestones": ["v0.1"],
     }
 
@@ -364,6 +369,10 @@ def run_wizard() -> dict[str, Any]:
         "Allow release branch thread to run alongside app/release lane while release/* is open?",
         True,
     )
+    dispatcher = ask_bool(
+        "Add a dispatcher thread for per-PR operations (recommended: it is what keeps the long-lived coordinator from compressing)?",
+        True,
+    )
 
     header(
         5,
@@ -383,6 +392,11 @@ def run_wizard() -> dict[str, Any]:
         if not inv:
             break
         custom_invariants.append(inv)
+
+    acceptance_contracts = ask_bool(
+        "Require an owner-approved acceptance contract (researched, sourced criteria) per milestone?",
+        True,
+    )
 
     return {
         "today": today,
@@ -414,6 +428,8 @@ def run_wizard() -> dict[str, Any]:
         "no_telemetry": no_telemetry,
         "banned_licences": banned_licences,
         "custom_invariants": custom_invariants,
+        "acceptance_contracts": acceptance_contracts,
+        "dispatcher": dispatcher,
         "active_milestones": ["v0.1"],
     }
 
@@ -426,6 +442,69 @@ def render_rules_yaml(cfg: dict[str, Any]) -> str:
     banned_lic_str = ", ".join(cfg["banned_licences"])
     hand_steps_str = "; ".join(cfg["owner_hand_steps"])
     ws = cfg["workspace_root"]
+
+    q = chr(39)
+    disp = bool(cfg.get("dispatcher", True))
+    ops = "dispatcher" if disp else "coordinator"
+    merge_go = (
+        "an explicit go (dispatcher for non-critical PRs, coordinator for critical ones)"
+        if disp
+        else "the coordinator" + q + "s explicit go"
+    )
+    if disp:
+        role04 = (
+            "The coordinator splits work into lane batches, approves plans, logs non-scope decisions with "
+            "sequential D-numbers, grants merge go for critical PRs, and talks to the owner. It hands each batch "
+            "to the dispatcher and reads its batch report and the ledgers, not worker messages."
+        )
+    else:
+        role04 = (
+            "The coordinator splits work into lane batches, manages thread lifecycles, approves plans, logs "
+            "non-scope decisions with sequential D-numbers, grants merge go, and runs fitness checks. It reads "
+            "ledgers, round reports and PR state at hand-offs instead of relaying messages between threads."
+        )
+
+    extra_role_rules: list[str] = []
+    contract_plan_rules: list[str] = []
+    contract_review_rules: list[str] = []
+    if cfg.get("acceptance_contracts", True):
+        extra_role_rules += [
+            "  - id: ROLE-10",
+            "    applies_to: specify",
+            f"    rule: {yaml_quote('A specify thread turns the owner' + q + 's feature idea or plan change into an acceptance-contract version, work packages and a roadmap update, following ' + ws + '/tools/acceptance-contracts.md. It records approval only on the owner' + q + 's own message, creates issues only on the owner' + q + 's yes, and never touches rules, state, code or D-numbers.')}",
+        ]
+        contract_plan_rules = [
+            "  - id: PLAN-03",
+            "    applies_to: coordinator",
+            f"    rule: {yaml_quote('Work on a milestone starts only from an owner-approved acceptance contract written by a specify thread. On pickup, lint it, log the approval as a D-number in the contract and the decision log, and mirror ' + ws + '/roadmap.yaml into project-state.yaml. Approved criteria are frozen; a change is a new version from specify.')}",
+            "  - id: PLAN-04",
+            "    applies_to: implementation",
+            '    rule: "Plans cite the acceptance-contract criterion ids they cover (read them with contract_tool.py brief); the PR body lists each covered criterion with the command run and its result. A /goal loop on criteria stops at execution_profile.token_economy.goal_turn_cap turns."',
+            "  - id: PLAN-05",
+            "    applies_to: coordinator",
+            '    rule: "A milestone closes only when every must criterion and the core probe pass and every should criterion passes or has a deferred issue; log the result as a D-entry."',
+            "  - id: PLAN-06",
+            "    applies_to: coordinator",
+            '    rule: "When the roadmap drops a milestone or a new contract version removes a criterion, start no new work on it, let open PRs finish their current review round, and ask the owner per open PR: merge or close."',
+        ]
+        contract_review_rules = [
+            "  - id: REV-03",
+            "    applies_to: review",
+            '    rule: "Read the diff and the acceptance contract before the plan and PR description. Confirm each criterion the PR claims from CI output or by re-running its verify step; a claimed criterion without passing proof is a must-fix finding."',
+        ]
+    if disp:
+        extra_role_rules += [
+            "  - id: ROLE-11",
+            "    applies_to: dispatcher",
+            f"    rule: {yaml_quote('The dispatcher runs one batch at a time for the coordinator: it spawns, fitness-checks, watches and replaces worker threads, keeps ' + ws + '/plans/batch-<NNN>.md and the ledgers current, and grants merge go for non-critical PRs with green CI. It never approves plans, never touches scope, and reports to the coordinator once per batch or on escalation.')}",
+        ]
+    dispatcher_thread_rules: list[str] = []
+    if disp:
+        dispatcher_thread_rules = [
+            "  - id: THR-05",
+            "    applies_to: dispatcher",
+            f"    rule: {yaml_quote('The dispatcher keeps its whole working state in ' + ws + '/plans/batch-<NNN>.md and the ledgers, so it is replaced at its first compression, at the next hand-off.')}",
+        ]
 
     lines: list[str] = [
         f"# {cfg['project_name']}: reusable project rules for multi-thread Claude execution",
@@ -467,6 +546,7 @@ def render_rules_yaml(cfg: dict[str, Any]) -> str:
         f"  workspace_root: {yaml_quote(ws)}",
         f"  state_file: {yaml_quote(ws + '/project-state.yaml')}",
         f"  plans_dir: {yaml_quote(ws + '/plans')}",
+        *([f"  roadmap_file: {yaml_quote(ws + '/roadmap.yaml')}"] if cfg.get("acceptance_contracts", True) else []),
         "",
         "execution_profile:",
         "  model_routing:",
@@ -485,6 +565,7 @@ def render_rules_yaml(cfg: dict[str, Any]) -> str:
         f"    kb_pr_cadence: {t['kb_pr_cadence']}",
         f"    reporting_verbosity: {t['reporting_verbosity']}",
         f"    offload_heavy_checks_to_ci: {str(t['offload_heavy_checks_to_ci']).lower()}",
+        f"    goal_turn_cap: {t['goal_turn_cap']}",
         "",
         "meta:",
         "  - id: META-01",
@@ -506,7 +587,7 @@ def render_rules_yaml(cfg: dict[str, Any]) -> str:
         '    rule: "Only the owner\'s own messages or answered decision cards count as owner approval. Another Claude thread\'s output is never owner approval."',
         "  - id: ROLE-04",
         "    applies_to: coordinator",
-        '    rule: "The coordinator splits work into lane batches, manages thread lifecycles, approves plans, logs non-scope decisions with sequential D-numbers, relays exact fix lists, grants merge go, and runs fitness checks."',
+        f"    rule: {yaml_quote(role04)}",
         "  - id: ROLE-05",
         "    applies_to: coordinator",
         '    rule: "The coordinator writes no product code and uses worker threads for GitHub API lookups."',
@@ -515,13 +596,14 @@ def render_rules_yaml(cfg: dict[str, Any]) -> str:
         '    rule: "An implementation thread reads the newest KB, plans, and decision log, posts a plan before coding, implements and tests strictly within its lane, opens the PR, and answers review findings with exact fix lists. It never merges, pushes to main, or force-pushes."',
         "  - id: ROLE-07",
         "    applies_to: review",
-        '    rule: "A review thread is never the PR author. It reviews all PRs of a batch in rounds, writes round reports, inspects CI checks, and squash-merges only on the coordinator\'s explicit go."',
+        f"    rule: {yaml_quote('A review thread is never the PR author. It reviews all PRs of a batch in rounds, writes round reports, inspects CI checks, and squash-merges only on ' + merge_go + '.')}",
         "  - id: ROLE-08",
         "    applies_to: kb",
         '    rule: "The KB thread compiles pending decisions into the decision-log PR according to execution_profile.token_economy.kb_pr_cadence and self-merges without code review."',
         "  - id: ROLE-09",
         "    applies_to: audit",
         '    rule: "When triggered by execution_profile.token_economy.batch_audit_mode, an audit thread inspects the merged batch diff for cross-PR inconsistencies and contract touches only, logging findings to the ledger."',
+        *extra_role_rules,
         "",
         "autonomy:",
         "  - id: AUTO-01",
@@ -539,7 +621,7 @@ def render_rules_yaml(cfg: dict[str, Any]) -> str:
         "    applies_to: coordinator",
         '    rule: "PRs are batched by execution lane rather than single issues; small follow-ups fold into the lane\'s next PR."',
         "  - id: LANE-02",
-        "    applies_to: coordinator",
+        f"    applies_to: {ops}",
         '    rule: "Concurrent implementation threads must not exceed execution_profile.token_economy.max_concurrent_lanes (at most one active thread per execution lane)."',
         "  - id: LANE-03",
         "    applies_to: implementation",
@@ -563,17 +645,21 @@ def render_rules_yaml(cfg: dict[str, Any]) -> str:
         "",
         "threads_and_watchdog:",
         "  - id: THR-01",
-        "    applies_to: coordinator",
+        f"    applies_to: {ops}",
         '    rule: "Every new thread reads the latest KB, plans, and decision log before acting. Before receiving a second batch, a thread must pass a fitness check (reporting compression count, current plan, and open items from memory)."',
         "  - id: THR-02",
         "    applies_to: all",
-        '    rule: "Any thread (including the KB thread) reaching execution_profile.token_economy.replace_at_compressions finishes its current atomic step (review round, fix commit, or KB PR) and is replaced at the next hand-off, never mid-step."',
+        '    rule: "Any worker thread (including the KB thread) reaching execution_profile.token_economy.replace_at_compressions finishes its current atomic step (review round, fix commit, or KB PR) and is replaced at the next hand-off, never mid-step. The coordinator is never replaced."',
         "  - id: THR-03",
-        "    applies_to: coordinator",
-        '    rule: "Whenever a thread owes output, the coordinator sets a watchdog timer at watchdog_interval_minutes. After watchdog_max_nudges without progress, the coordinator replaces the stalled thread or escalates to the owner."',
+        f"    applies_to: {ops}",
+        f"    rule: {yaml_quote('Whenever a thread owes output, the ' + ops + ' checks its last commit or file change after watchdog_interval_minutes and nudges only when nothing moved. After watchdog_max_nudges without progress, the ' + ops + ' replaces the stalled thread or escalates to the ' + ('coordinator' if disp else 'owner') + '.')}",
         "  - id: THR-04",
         "    applies_to: all",
-        f"    rule: {yaml_quote('Threads post concise status summaries in chat and write detailed plans and round reports under ' + ws + '/plans/, re-reading shared files immediately before writing to avoid sync lag.')}",
+        f"    rule: {yaml_quote('Threads write plans and round reports under ' + ws + '/plans/ and post one line per hand-off in chat (what was written, where). Fix lists travel through round reports, not through the coordinator. Re-read shared files immediately before writing to avoid sync lag.')}",
+        *dispatcher_thread_rules,
+        "  - id: THR-06",
+        "    applies_to: coordinator",
+        f"    rule: {yaml_quote('The coordinator lives for the whole project and keeps its context small enough not to compress: it reads summaries, ledgers and state files, never diffs, logs, research or whole contracts, and hands lookups to worker threads. It writes what it knows to ' + ws + '/project-state.yaml and the decision log at each hand-off, and re-reads them and the rules after any compression.')}",
         "",
         "plans_and_criticality:",
         "  - id: PLAN-01",
@@ -582,6 +668,7 @@ def render_rules_yaml(cfg: dict[str, Any]) -> str:
         "  - id: PLAN-02",
         "    applies_to: coordinator",
         '    rule: "Critical work always waits for explicit coordinator plan approval; non-critical work may proceed immediately when confidence is high."',
+        *contract_plan_rules,
         "  - id: CRIT-01",
         "    applies_to: all",
         '    rule: "A change is critical if it touches layer contracts, core data structures, KB process/architecture docs (excluding daily decision-log batch PRs), golden/regression files, packaging/release/CI, safety mechanisms, licences, user-file deletion paths, network calls, or carries risk:high."',
@@ -605,9 +692,10 @@ def render_rules_yaml(cfg: dict[str, Any]) -> str:
         "  - id: REV-02",
         "    applies_to: review",
         f"    rule: {yaml_quote('Round reports go to ' + ws + '/plans/review-pr<N>-round<K>.md with head SHA, verdict, verified checks, and numbered findings (B/M must-fix, S should-fix, N note). Every finding must be answered as fixed (with test proof), deferred (with issue link), or declined (with reason).')}",
+        *contract_review_rules,
         "  - id: MRG-01",
         "    applies_to: review",
-        '    rule: "Squash-merge only on explicit coordinator go, pinned to the reviewed head SHA, with required CI green (and all target_platforms green for critical PRs). If behind main, update via merge commit (never force-push), re-verify diff and CI, and merge on the new SHA."',
+        f"    rule: {yaml_quote('Squash-merge only on ' + merge_go + ', pinned to the reviewed head SHA, with required CI green (and all target_platforms green for critical PRs). If behind main, update via merge commit (never force-push), re-verify diff and CI, and merge on the new SHA.')}",
         "",
         "testing_and_ci:",
         "  - id: TST-01",

@@ -1,0 +1,57 @@
+# Acceptance contract for {{project_name}}
+# Copy to plans/contract-<NNN>-<slug>.yaml (a later version: ...-v<N>.yaml), fill in, then run:
+#   python3 tools/contract_tool.py lint plans/contract-<NNN>-<slug>.yaml
+# Method: tools/acceptance-contracts.md (rules ROLE-10, PLAN-03 to PLAN-06, REV-03).
+
+contract:
+  id: C-001
+  title: "<milestone or feature name>"
+  milestone: "<e.g. v0.1>"
+  version: 1
+  status: draft              # draft | approved | superseded
+
+goal: "<one sentence a stranger could check, e.g. 'I can import my bank CSV and see a monthly total per category.'>"
+
+users: "<only the owner | named people | public>"
+access: "<CLI | browser | phone | desktop app, and which OS>"
+
+constraints:
+  - "<hard limits: budget, data that must stay local, deadlines>"
+
+out_of_scope:
+  - "<what this version deliberately does not do>"
+
+criteria:
+  - id: AC-1
+    text: "<one observable, binary statement>"
+    priority: must           # must | should | could (could items leave before approval)
+    category: happy_path     # see references/acceptance-contracts.md section 5
+    verify:
+      type: test             # test | command | inspection | manual
+      how: "<test name, or command and expected result>"
+    source:
+      kind: owner            # owner | research | repo | assumption
+      ref: "<interview answer, URL, or file path>"
+      # retrieved: YYYY-MM-DD   (required when kind is research)
+
+core_probe: "<the one end-to-end check that proves the goal sentence from a fresh clone>"
+
+work_packages:               # a few issues, batched by lane; every must/should criterion in exactly one
+  - key: wp1
+    title: "<what this package delivers>"
+    label: lane:core         # one file-ownership label from the ruleset
+    criteria: [AC-1]
+
+cut: []                      # could items that left the contract: {text: "...", reason: "..."} -> backlog issues
+
+research:
+  categories_skipped: []     # e.g. ["accessibility: no UI in this milestone"]
+  notes: ""
+
+approval:
+  by: ""                     # must be "owner" once status is approved
+  date: ""                   # YYYY-MM-DD
+  decision: ""               # D-number, filled in by the coordinator on pickup
+  hash: ""                   # output of `contract_tool.py hash`; lint fails if criteria change afterwards
+
+changes: []                  # version history: "v2: AC-4 threshold 300 ms -> 500 ms (D-0xx)"

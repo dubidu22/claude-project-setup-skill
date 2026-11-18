@@ -8,7 +8,12 @@ files by generate_project_rules.py) and renders the templates in
 
     <out-dir>/
       project_instructions.md     starter block for the Coordinator chat
+      dispatcher_instructions.md  starter block for the Dispatcher chat (only with dispatcher: true)
       plans/README.md
+      plans/contract-template.yaml  acceptance contract template (PLAN-03)
+      tools/contract_tool.py      contract lint and /goal helper, copied as-is
+      tools/acceptance-contracts.md  the method a specify thread follows, copied as-is
+      roadmap.yaml                ordered milestones; specify maintains it, the owner decides it
       kb/README.md
       kb/decision-log.md          with D-001 recording adoption of the ruleset
       ledger/implementation.md
@@ -34,6 +39,10 @@ from pathlib import Path
 from typing import Any
 
 TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "assets" / "templates"
+CONTRACT_TOOL = Path(__file__).resolve().parent / "contract_tool.py"
+CONTRACT_METHOD = Path(__file__).resolve().parent.parent / "references" / "acceptance-contracts.md"
+CONTRACT_TEMPLATE = Path("plans") / "contract-template.yaml"
+DISPATCHER_TEMPLATE = Path("dispatcher_instructions.md")
 
 LABEL_COLOURS = {
     "lane:core": "B60205",
@@ -45,6 +54,7 @@ RISK_LABELS = [
     ("risk:low", "C2E0C6", "Routine change within lane ownership"),
     ("full-ci", "1D76DB", "Dispatch the full target_platforms matrix on this PR"),
     ("deferred", "FBCA04", "Review finding deferred from a PR round"),
+    ("backlog", "D4C5F9", "Idea cut from an acceptance contract; run specify before building it"),
     ("flaky-test", "E99695", "Quarantined test; fix before release"),
 ]
 
@@ -113,6 +123,19 @@ def lanes_yml(cfg: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def roadmap_yml(cfg: dict[str, Any]) -> str:
+    lines = [
+        f"# {cfg.get('project_name', 'project')}: roadmap. Order is priority. The owner decides it; a specify",
+        "# thread edits it; the coordinator mirrors `active` milestones into project-state.yaml.",
+        "# Check: python3 tools/contract_tool.py roadmap roadmap.yaml --plans plans",
+        "# status: planned | active | done | dropped. A milestone turns active only with an approved contract.",
+        "milestones:",
+    ]
+    for name in cfg.get("active_milestones") or ["v0.1"]:
+        lines += [f"  - name: \"{name}\"", "    goal: \"\"", "    status: planned", "    contract: \"\""]
+    return "\n".join(lines) + "\n"
+
+
 def write(path: Path, content: str, force: bool) -> str:
     if path.exists() and not force:
         return f"kept     {path}"
@@ -134,6 +157,26 @@ def main() -> int:
         return 2
     cfg = load_config(args.from_json)
     cfg.setdefault("workspace_root", str(args.out_dir))
+    cfg["thread_ops_line"] = (
+        "Hand each batch to the Dispatcher thread, which spawns, watches and replaces worker threads; "
+        "read its one report per batch and the ledgers, not worker messages."
+        if cfg.get("dispatcher", True)
+        else "Spawn, fitness-check and replace threads per `threads_and_watchdog`; read ledgers, round "
+        "reports and PR state at hand-offs instead of relaying messages between threads."
+    )
+    cfg["merge_go_line"] = (
+        "grant merge go for critical PRs (the Dispatcher grants it for non-critical ones)"
+        if cfg.get("dispatcher", True)
+        else "grant merge go"
+    )
+    cfg["contract_line"] = (
+        "New features and plan changes reach you as an owner-approved acceptance contract from a specify "
+        "thread. On pickup: lint it, log the D-number, mirror `roadmap.yaml` into the state file, then batch "
+        "its work packages by lane (`PLAN-03`). If the owner brings you a feature idea directly, point them "
+        "to specify; a change in how something is built stays with you."
+        if cfg.get("acceptance_contracts", True)
+        else "Keep milestone goals in `project-state.yaml` current."
+    )
     out = args.out_dir.expanduser().resolve()
     out.mkdir(parents=True, exist_ok=True)
 
@@ -142,7 +185,15 @@ def main() -> int:
         if not tpl.is_file():
             continue
         rel = tpl.relative_to(TEMPLATE_DIR)
+        if rel == CONTRACT_TEMPLATE and not cfg.get("acceptance_contracts", True):
+            continue
+        if rel == DISPATCHER_TEMPLATE and not cfg.get("dispatcher", True):
+            continue
         results.append(write(out / rel, render(tpl.read_text(encoding="utf-8"), cfg), args.force))
+    if cfg.get("acceptance_contracts", True):
+        results.append(write(out / "tools" / "contract_tool.py", CONTRACT_TOOL.read_text(encoding="utf-8"), args.force))
+        results.append(write(out / "tools" / "acceptance-contracts.md", CONTRACT_METHOD.read_text(encoding="utf-8"), args.force))
+        results.append(write(out / "roadmap.yaml", roadmap_yml(cfg), args.force))
     if args.github:
         results.append(write(out / ".github" / "lanes.yml", lanes_yml(cfg), args.force))
 

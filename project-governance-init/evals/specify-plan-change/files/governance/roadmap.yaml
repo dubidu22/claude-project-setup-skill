@@ -1,0 +1,15 @@
+# ledgerlite: roadmap. Order is priority.
+# status: planned | active | done | dropped. A milestone turns active only with an approved contract.
+milestones:
+  - name: "v0.1"
+    goal: "I can import my bank CSV and see a monthly total per category."
+    status: active
+    contract: "C-001"
+  - name: "v0.2"
+    goal: "The CLI warns me when a category goes over its monthly budget."
+    status: planned
+    contract: ""
+  - name: "v0.3"
+    goal: "PDF export of the monthly report."
+    status: planned
+    contract: ""

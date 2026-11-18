@@ -33,7 +33,7 @@ from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Any
 
-VALID_SCOPES = {"owner", "coordinator", "implementation", "review", "kb", "audit", "all"}
+VALID_SCOPES = {"owner", "coordinator", "dispatcher", "specify", "implementation", "review", "kb", "audit", "all"}
 VOLATILE_KEYS = {
     "active_now",
     "paused",
@@ -403,6 +403,35 @@ def run_checks(data: dict[str, Any], rules: list[Rule], raw_text: str, state_tex
     force_push_allowed = rules_matching(r"(always|may|should) force-?push|force-?push to keep")
     if force_push_banned and force_push_allowed:
         f.append(Finding("A09", "ERROR", f"`{force_push_allowed[0].id}` allows force-push while `{force_push_banned[0].id}` forbids it", "pull_requests_and_reviews"))
+
+    # --- A11 optional roles: defined when used, and kept inside their authority ---
+    role_scopes = {str(r.applies_to).strip() for r in rules if r.section == "roles" and r.applies_to}
+    for scope in ("dispatcher", "specify"):
+        used = [r for r in rules if r.applies_to and scope in str(r.applies_to) and r.section != "roles"]
+        if used and scope not in role_scopes:
+            ids = ", ".join(r.id or "?" for r in used)
+            f.append(Finding("A11", "WARN", f"{ids} bind a `{scope}` thread but no rule in `roles` defines that role", "roles"))
+    def dispatcher_over_reach(text: str) -> bool:
+        for sentence in re.split(r"(?<=[.;])\s+", text):
+            if not re.search(r"\bdispatcher\b", sentence, re.I) or re.search(r"\bnever\b|\bnot\b", sentence, re.I):
+                continue
+            if not re.search(r"\b(may|can|grants?|approves?|decides?)\b", sentence, re.I):
+                continue
+            if re.search(r"(?<!non-)\bcritical\b|\bproduct scope\b|\bowner approval\b|\bacceptance contract\b", sentence, re.I) and not re.search(
+                r"dispatcher for non-critical", sentence, re.I
+            ):
+                return True
+        return False
+
+    over_reach = [r for r in rules if dispatcher_over_reach(r.text)]
+    if over_reach:
+        ids = ", ".join(r.id or "?" for r in over_reach)
+        f.append(Finding("A11", "ERROR", f"{ids} give the dispatcher authority over critical work, scope or owner approval; that stays with the coordinator and the owner", "roles"))
+    owner_contract = rules_matching(r"owner-approved acceptance contract|owner[^.]*approv[^.]*acceptance contract")
+    thread_contract = rules_matching(r"\b(coordinator|dispatcher|specify thread|review thread)\b[^.]*\b(may|can)\b[^.]*\b(approve|change|edit|amend)[^.]*acceptance contract")
+    if thread_contract:
+        other = f" (contradicts `{owner_contract[0].id}`)" if owner_contract else ""
+        f.append(Finding("A11", "ERROR", f"`{thread_contract[0].id}` lets a thread approve or change an acceptance contract; only the owner approves, and a change is a new version" + other, "plans_and_criticality"))
 
     # --- A10 state file cross-check ---
     if state_text is not None:
