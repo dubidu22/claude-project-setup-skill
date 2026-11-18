@@ -67,7 +67,8 @@ rule exists to get real decisions, not to block when there is nobody to decide.
    Phrase each invariant as a testable sentence; vague ones are ignored later.
    Also ask whether milestones need an owner-approved acceptance contract
    (`acceptance_contracts`, recommend yes; it adds `ROLE-10`, `PLAN-03` to
-   `PLAN-05`, `REV-03` and scaffolds the template and `tools/contract_tool.py`).
+   `PLAN-06`, `REV-03` and scaffolds the roadmap, the template and
+   `tools/contract_tool.py`).
 6. **Generate and scaffold** (below).
 
 ## Stage 6: generate, check, scaffold
@@ -101,16 +102,15 @@ rule exists to get real decisions, not to block when there is nobody to decide.
    `dispatcher_instructions.md` into the dispatcher chat if there is one;
    create the labels from `lanes.yml`).
 
-## After generation: acceptance contracts
+## After generation: how work gets in
 
-With `acceptance_contracts` on, the scaffold puts the method
+With `acceptance_contracts` on, the scaffold puts `roadmap.yaml`, the method
 (`tools/acceptance-contracts.md`), the template
 (`plans/contract-template.yaml`) and the checker (`tools/contract_tool.py`)
-into the workspace. Drafting a milestone's acceptance contract is then the
-project's own work: the coordinator interviews the owner, an acceptance thread
-researches and drafts, only the owner approves (`PLAN-03`, `ROLE-10`). Say this
-in the hand-over so the owner knows what the first milestone starts with. Do
-not draft or approve a contract as part of init.
+into the workspace. Say in the hand-over how the owner starts and changes
+work: open a new chat and specify the first milestone ("specify: <idea>");
+approve the contract there; tell the coordinator to pick it up. Plan changes
+go the same way. Do not write criteria or roadmap goals as part of init.
 
 ## Things that are easy to get wrong
 

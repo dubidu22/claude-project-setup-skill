@@ -12,7 +12,8 @@ files by generate_project_rules.py) and renders the templates in
       plans/README.md
       plans/contract-template.yaml  acceptance contract template (PLAN-03)
       tools/contract_tool.py      contract lint and /goal helper, copied as-is
-      tools/acceptance-contracts.md  the method the acceptance thread follows, copied as-is
+      tools/acceptance-contracts.md  the method a specify thread follows, copied as-is
+      roadmap.yaml                ordered milestones; specify maintains it, the owner decides it
       kb/README.md
       kb/decision-log.md          with D-001 recording adoption of the ruleset
       ledger/implementation.md
@@ -53,6 +54,7 @@ RISK_LABELS = [
     ("risk:low", "C2E0C6", "Routine change within lane ownership"),
     ("full-ci", "1D76DB", "Dispatch the full target_platforms matrix on this PR"),
     ("deferred", "FBCA04", "Review finding deferred from a PR round"),
+    ("backlog", "D4C5F9", "Idea cut from an acceptance contract; run specify before building it"),
     ("flaky-test", "E99695", "Quarantined test; fix before release"),
 ]
 
@@ -121,6 +123,19 @@ def lanes_yml(cfg: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def roadmap_yml(cfg: dict[str, Any]) -> str:
+    lines = [
+        f"# {cfg.get('project_name', 'project')}: roadmap. Order is priority. The owner decides it; a specify",
+        "# thread edits it; the coordinator mirrors `active` milestones into project-state.yaml.",
+        "# Check: python3 tools/contract_tool.py roadmap roadmap.yaml --plans plans",
+        "# status: planned | active | done | dropped. A milestone turns active only with an approved contract.",
+        "milestones:",
+    ]
+    for name in cfg.get("active_milestones") or ["v0.1"]:
+        lines += [f"  - name: \"{name}\"", "    goal: \"\"", "    status: planned", "    contract: \"\""]
+    return "\n".join(lines) + "\n"
+
+
 def write(path: Path, content: str, force: bool) -> str:
     if path.exists() and not force:
         return f"kept     {path}"
@@ -155,9 +170,10 @@ def main() -> int:
         else "grant merge go"
     )
     cfg["contract_line"] = (
-        "Before a milestone's first plan, interview the owner, have an acceptance thread draft the "
-        "acceptance contract (method: `tools/acceptance-contracts.md`), read only its "
-        "`contract_tool.py summary`, and put it to the owner (`PLAN-03`)."
+        "New features and plan changes reach you as an owner-approved acceptance contract from a specify "
+        "thread. On pickup: lint it, log the D-number, mirror `roadmap.yaml` into the state file, then batch "
+        "its work packages by lane (`PLAN-03`). If the owner brings you a feature idea directly, point them "
+        "to specify; a change in how something is built stays with you."
         if cfg.get("acceptance_contracts", True)
         else "Keep milestone goals in `project-state.yaml` current."
     )
@@ -177,6 +193,7 @@ def main() -> int:
     if cfg.get("acceptance_contracts", True):
         results.append(write(out / "tools" / "contract_tool.py", CONTRACT_TOOL.read_text(encoding="utf-8"), args.force))
         results.append(write(out / "tools" / "acceptance-contracts.md", CONTRACT_METHOD.read_text(encoding="utf-8"), args.force))
+        results.append(write(out / "roadmap.yaml", roadmap_yml(cfg), args.force))
     if args.github:
         results.append(write(out / ".github" / "lanes.yml", lanes_yml(cfg), args.force))
 

@@ -5,13 +5,13 @@ so that order is obvious at a glance.
 
 | File | Written by | When |
 |------|-----------|------|
-| `contract-<NNN>-<slug>.yaml` | acceptance thread drafts, owner approves | before the first plan of a milestone (`PLAN-03`) |
+| `contract-<NNN>-<slug>.yaml` (later versions `-v<N>`) | specify thread drafts, owner approves | before the first plan of a milestone (`PLAN-03`) |
 | `plan-<NNN>-<lane>-<slug>.md` | implementation thread | before writing tests or code |
 | `review-pr<N>-round<K>.md` | review thread | end of every review round |
 | `batch-<NNN>.md` | coordinator composes; dispatcher (if any) keeps it current | when a batch is composed |
 
 An acceptance contract states the milestone's goal sentence, sourced criteria
-(each with a `verify` step), a core probe and the owner's approval; start from
+(each with a `verify` step), a core probe, work packages and the owner's approval; start from
 `contract-template.yaml` and check it with `python3 tools/contract_tool.py lint`.
 Approved contracts are frozen by `approval.hash`: a change is a new version with
 a new D-number. Worker threads read `contract_tool.py brief`, not the whole file;

@@ -470,19 +470,22 @@ def render_rules_yaml(cfg: dict[str, Any]) -> str:
     if cfg.get("acceptance_contracts", True):
         extra_role_rules += [
             "  - id: ROLE-10",
-            "    applies_to: acceptance",
-            f"    rule: {yaml_quote('Following ' + ws + '/tools/acceptance-contracts.md, the acceptance thread turns the coordinator' + q + 's interview notes into ' + ws + '/plans/contract-<NNN>-<slug>.yaml: binary criteria, each with a verify step and a source (research: URL and retrieval date), plus a core probe. It lints the file clean, returns only the contract_tool.py summary, and never approves it.')}",
+            "    applies_to: specify",
+            f"    rule: {yaml_quote('A specify thread turns the owner' + q + 's feature idea or plan change into an acceptance-contract version, work packages and a roadmap update, following ' + ws + '/tools/acceptance-contracts.md. It records approval only on the owner' + q + 's own message, creates issues only on the owner' + q + 's yes, and never touches rules, state, code or D-numbers.')}",
         ]
         contract_plan_rules = [
             "  - id: PLAN-03",
             "    applies_to: coordinator",
-            f"    rule: {yaml_quote('Before a milestone' + q + 's first plan, interview the owner and have an acceptance thread draft the acceptance contract. It binds only after the owner' + q + 's own approval, logged with a D-number and the contract hash; approved criteria are frozen, and a change is a new version with a new D-number.')}",
+            f"    rule: {yaml_quote('Work on a milestone starts only from an owner-approved acceptance contract written by a specify thread. On pickup, lint it, log the approval as a D-number in the contract and the decision log, and mirror ' + ws + '/roadmap.yaml into project-state.yaml. Approved criteria are frozen; a change is a new version from specify.')}",
             "  - id: PLAN-04",
             "    applies_to: implementation",
             '    rule: "Plans cite the acceptance-contract criterion ids they cover (read them with contract_tool.py brief); the PR body lists each covered criterion with the command run and its result. A /goal loop on criteria stops at execution_profile.token_economy.goal_turn_cap turns."',
             "  - id: PLAN-05",
             "    applies_to: coordinator",
             '    rule: "A milestone closes only when every must criterion and the core probe pass and every should criterion passes or has a deferred issue; log the result as a D-entry."',
+            "  - id: PLAN-06",
+            "    applies_to: coordinator",
+            '    rule: "When the roadmap drops a milestone or a new contract version removes a criterion, start no new work on it, let open PRs finish their current review round, and ask the owner per open PR: merge or close."',
         ]
         contract_review_rules = [
             "  - id: REV-03",
@@ -543,6 +546,7 @@ def render_rules_yaml(cfg: dict[str, Any]) -> str:
         f"  workspace_root: {yaml_quote(ws)}",
         f"  state_file: {yaml_quote(ws + '/project-state.yaml')}",
         f"  plans_dir: {yaml_quote(ws + '/plans')}",
+        *([f"  roadmap_file: {yaml_quote(ws + '/roadmap.yaml')}"] if cfg.get("acceptance_contracts", True) else []),
         "",
         "execution_profile:",
         "  model_routing:",

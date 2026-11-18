@@ -8,18 +8,19 @@ acceptance contract looks like).
 ## Read-only
 
 The audit never edits, regenerates, scaffolds, approves or deletes anything:
-not the ruleset, the state file, `governance-config.json`, an acceptance
-contract, `CLAUDE.md` or any repo file. Its only output is the report, in the
+not the ruleset, the state file, `governance-config.json`, the roadmap, an
+acceptance contract, a GitHub issue, `CLAUDE.md` or any repo file. Its only output is the report, in the
 reply, or as one new file when the owner names one. Both scripts below only
 read. Fixes are proposed as exact replacement text or config changes; applying
-them is the owner's decision and init's job.
+them is the owner's decision, through init (rules) or specify (criteria and
+roadmap).
 
 ## Steps
 
 1. **Gather.** `claude-project-rules.yaml` (or rules living in `CLAUDE.md` /
    project instructions), `project-state.yaml`, `governance-config.json` if
    present, the repo's `CLAUDE.md`, the newest decision-log entries, CI
-   workflow files, and every `plans/contract-*.yaml`.
+   workflow files, `roadmap.yaml`, and every `plans/contract-*.yaml`.
 2. **Mechanical pass on the rules.**
    ```bash
    python3 scripts/audit_rules.py <rules.yaml> [--state <state.yaml>] [--json]
@@ -34,7 +35,11 @@ them is the owner's decision and init's job.
    ```
    It finds untestable or compound criteria, missing verify steps, unsourced
    research, uncovered categories, an approval that is not the owner's, and
-   approved criteria edited in place (hash mismatch).
+   approved criteria edited in place (hash mismatch), and criteria outside any
+   work package. Then the roadmap against the contracts:
+   ```bash
+   python3 scripts/contract_tool.py roadmap <roadmap.yaml> --plans <plans dir>
+   ```
 4. **Semantic pass.** Work through `references/audit-checklist.md`: the
    contradiction pairs, scope and role ownership, state leakage, token cost,
    and for contracts whether the criteria are the right ones. Rules most often

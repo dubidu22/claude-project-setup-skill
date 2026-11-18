@@ -13,6 +13,8 @@ Usage:
     python3 contract_tool.py summary contract.yaml        # hand-back for the coordinator
     python3 contract_tool.py brief contract.yaml [--ids AC-3,AC-4]   # compact view for worker threads
     python3 contract_tool.py hash contract.yaml           # value for approval.hash (freezes the criteria)
+    python3 contract_tool.py issues contract.yaml [--json] # issue drafts, one per work package (+ backlog items)
+    python3 contract_tool.py roadmap roadmap.yaml [--plans DIR]   # check the roadmap against the contracts
     python3 contract_tool.py goal contract.yaml [--ids AC-3,AC-4] [--turns 30] [--allow-draft]
 
 lint exit code: 0 clean or only WARN/INFO, 1 when any ERROR (or WARN with
@@ -58,6 +60,8 @@ ID_RE = re.compile(r"^AC-\d+$")
 CONTRACT_ID_RE = re.compile(r"^C-\d+$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 DECISION_RE = re.compile(r"^D-\d+$")
+LABEL_RE = re.compile(r"^lane:[a-z0-9_-]+$")
+ROADMAP_STATUSES = {"planned", "active", "done", "dropped"}
 LONG_CRITERION = 220
 MANY_MUST = 40
 MANUAL_SHARE = 1 / 3
@@ -263,6 +267,44 @@ def lint(data: dict[str, Any]) -> list[Finding]:
     if uncovered:
         add("C029", "WARN", f"no criterion and no skip reason for: {', '.join(uncovered)}; add criteria or list each under research.categories_skipped as 'name: reason'", "research")
 
+    packages = data.get("work_packages")
+    in_scope = [s(c.get("id")) for c in criteria if isinstance(c, dict) and s(c.get("priority")).lower() in ("must", "should")]
+    if not isinstance(packages, list) or not packages:
+        add("C033", "WARN", "no work_packages; group the must and should criteria into a few packages (one issue each)", "work_packages")
+    else:
+        placed: dict[str, str] = {}
+        keys: set[str] = set()
+        for i, wp in enumerate(packages):
+            if not isinstance(wp, dict):
+                add("C033", "ERROR", "work package is not a mapping", f"work_packages[{i}]")
+                continue
+            key = s(wp.get("key")) or f"work_packages[{i}]"
+            if key in keys:
+                add("C033", "ERROR", f"duplicate work package key {key}", key)
+            keys.add(key)
+            if is_placeholder(wp.get("title")):
+                add("C033", "ERROR", "work package title is missing or still a placeholder", key)
+            if not LABEL_RE.match(s(wp.get("label"))):
+                add("C033", "WARN", f"label '{s(wp.get('label'))}' should be one file-ownership label like lane:cli", key)
+            ids = wp.get("criteria") if isinstance(wp.get("criteria"), list) else []
+            if not ids:
+                add("C033", "ERROR", "work package lists no criteria", key)
+            for cid in map(s, ids):
+                if cid not in seen:
+                    add("C033", "ERROR", f"{cid} is not a criterion of this contract", key)
+                elif cid in placed:
+                    add("C033", "ERROR", f"{cid} is in two work packages ({placed[cid]} and {key}); one owner per criterion", key)
+                else:
+                    placed[cid] = key
+        loose = [c for c in in_scope if c and c not in placed]
+        if loose:
+            add("C033", "ERROR", f"not in any work package: {', '.join(loose)}", "work_packages")
+        if len(packages) > 8:
+            add("C033", "WARN", f"{len(packages)} work packages; issues should batch by lane, not by criterion", "work_packages")
+    for i, item in enumerate(data.get("cut") or []):
+        if not isinstance(item, dict) or is_placeholder(item.get("text")):
+            add("C034", "WARN", "cut item needs text (and a reason) so it can become a backlog issue", f"cut[{i}]")
+
     if status == "approved":
         approval = data.get("approval") or {}
         if not isinstance(approval, dict):
@@ -272,7 +314,7 @@ def lint(data: dict[str, Any]) -> list[Finding]:
         if not DATE_RE.match(s(approval.get("date"))):
             add("C023", "ERROR", "status is approved but approval.date is not YYYY-MM-DD", "approval")
         if not DECISION_RE.match(s(approval.get("decision"))):
-            add("C023", "ERROR", "status is approved but approval.decision has no D-number", "approval")
+            add("C023", "WARN", "approved but approval.decision has no D-number yet; the coordinator logs it on pickup, and no work starts before", "approval")
         stored = s(approval.get("hash"))
         if not stored:
             add("C027", "ERROR", "status is approved but approval.hash is empty; record the output of `contract_tool.py hash`", "approval")
@@ -339,6 +381,95 @@ def brief(data: dict[str, Any], ids: list[str] | None) -> str:
     return "\n".join(out) + "\n"
 
 
+def issue_drafts(path: Path, data: dict[str, Any]) -> list[dict[str, Any]]:
+    """One draft per work package, plus one backlog draft per cut item. Criteria are cited, never redefined."""
+    meta = data.get("contract") or {}
+    cid, ver, ms = s(meta.get("id")), s(meta.get("version")), s(meta.get("milestone"))
+    by_id = {s(c.get("id")): c for c in data.get("criteria") or [] if isinstance(c, dict)}
+    ref = f"{path.as_posix()} ({cid} v{ver}, hash {contract_hash(data)})"
+    drafts: list[dict[str, Any]] = []
+    for wp in data.get("work_packages") or []:
+        if not isinstance(wp, dict):
+            continue
+        rows = []
+        for i in map(s, wp.get("criteria") or []):
+            c = by_id.get(i)
+            if c:
+                v = c.get("verify") if isinstance(c.get("verify"), dict) else {}
+                rows.append(f"- [ ] **{i}** ({s(c.get('priority'))}) {s(c.get('text'))}\n  Verify ({s(v.get('type'))}): `{s(v.get('how'))}`")
+        body = "\n".join([
+            f"Goal of {ms or cid}: {s(data.get('goal'))}", "",
+            "## Acceptance criteria", *rows, "",
+            f"Source of truth: {ref}. The criteria are frozen there; to change one, change the contract (new version, owner approval), not this issue.",
+        ])
+        drafts.append({"title": f"[{cid}] {s(wp.get('title'))}", "labels": [x for x in [s(wp.get("label"))] if x],
+                       "milestone": ms, "body": body})
+    for item in data.get("cut") or []:
+        if isinstance(item, dict) and not is_placeholder(item.get("text")):
+            body = f"Cut from {cid} v{ver} ({ms}).\n\nReason: {s(item.get('reason')) or 'not needed for this milestone'}\n\nNot specified yet: run specify before building it."
+            drafts.append({"title": f"[backlog] {s(item.get('text'))}", "labels": ["backlog"], "milestone": "", "body": body})
+    return drafts
+
+
+def render_issues(drafts: list[dict[str, Any]]) -> str:
+    out = []
+    for n, d in enumerate(drafts, 1):
+        head = f"### Draft {n}: {d['title']}\nLabels: {', '.join(d['labels']) or '-'} | Milestone: {d['milestone'] or '-'}"
+        out.append(head + "\n\n" + d["body"])
+    return "\n\n---\n\n".join(out) + "\n"
+
+
+def lint_roadmap(data: dict[str, Any], plans: Path | None) -> list[Finding]:
+    f: list[Finding] = []
+    ms = data.get("milestones")
+    if not isinstance(ms, list) or not ms:
+        return [Finding("R001", "ERROR", "milestones must be a non-empty, ordered list", "milestones")]
+    contracts: dict[str, list[dict[str, Any]]] = {}
+    if plans and plans.is_dir():
+        for cp in sorted(plans.glob("contract-*.y*ml")):
+            if "template" in cp.name:
+                continue
+            try:
+                cd = load(cp)
+            except Exception:
+                f.append(Finding("R005", "WARN", f"cannot read {cp.name}", "plans"))
+                continue
+            m = s((cd.get("contract") or {}).get("milestone"))
+            contracts.setdefault(m, []).append(cd)
+    names: set[str] = set()
+    for i, m in enumerate(ms):
+        if not isinstance(m, dict) or is_placeholder(m.get("name")):
+            f.append(Finding("R001", "ERROR", "milestone needs a name", f"milestones[{i}]"))
+            continue
+        name = s(m.get("name"))
+        if name in names:
+            f.append(Finding("R002", "ERROR", f"milestone {name} appears twice", name))
+        names.add(name)
+        status = s(m.get("status")).lower()
+        if status not in ROADMAP_STATUSES:
+            f.append(Finding("R003", "ERROR", f"status must be one of {sorted(ROADMAP_STATUSES)}, got '{status}'", name))
+        if is_placeholder(m.get("goal")) and status != "dropped":
+            f.append(Finding("R004", "WARN", "goal sentence is missing", name))
+        if plans is None:
+            continue
+        mine = contracts.get(name, [])
+        approved = [c for c in mine if s((c.get("contract") or {}).get("status")).lower() == "approved"]
+        if status == "active" and not approved:
+            f.append(Finding("R006", "ERROR", "active milestone has no owner-approved acceptance contract; run specify first", name))
+        if status == "dropped" and approved:
+            f.append(Finding("R007", "WARN", "dropped milestone still has an approved contract; mark it superseded so no thread works from it", name))
+        if len(approved) > 1:
+            f.append(Finding("R008", "ERROR", "more than one approved contract version; mark the older ones superseded", name))
+        want = s(m.get("contract"))
+        have = {s((c.get("contract") or {}).get("id")) for c in mine}
+        if want and have and want not in have:
+            f.append(Finding("R009", "WARN", f"roadmap names contract {want} but plans/ holds {', '.join(sorted(have))} for this milestone", name))
+    if plans is not None:
+        for m_name in sorted(set(contracts) - names - {""}):
+            f.append(Finding("R010", "WARN", f"plans/ holds a contract for milestone '{m_name}' that is not on the roadmap", m_name))
+    return f
+
+
 def goal_line(path: Path, data: dict[str, Any], ids: list[str] | None, turns: int) -> str:
     crit = [c for c in data.get("criteria") or [] if isinstance(c, dict)]
     known = {s(c.get("id")) for c in crit}
@@ -375,6 +506,13 @@ def main() -> int:
     p_brief.add_argument("--ids", help="comma-separated criterion ids (default: all)")
     p_hash = sub.add_parser("hash", help="print the value for approval.hash")
     p_hash.add_argument("contract", type=Path)
+    p_iss = sub.add_parser("issues", help="issue drafts from work packages and cut items (prints only, creates nothing)")
+    p_iss.add_argument("contract", type=Path)
+    p_iss.add_argument("--json", action="store_true")
+    p_road = sub.add_parser("roadmap", help="check roadmap.yaml, optionally against the contracts in a plans directory")
+    p_road.add_argument("contract", type=Path, metavar="roadmap")
+    p_road.add_argument("--plans", type=Path)
+    p_road.add_argument("--strict", action="store_true")
     p_goal = sub.add_parser("goal", help="print a /goal line for Claude Code")
     p_goal.add_argument("contract", type=Path)
     p_goal.add_argument("--ids", help="comma-separated criterion ids (default: all must criteria + core probe)")
@@ -397,6 +535,19 @@ def main() -> int:
     if args.cmd == "hash":
         print(contract_hash(data))
         return 0
+    if args.cmd == "roadmap":
+        rf = lint_roadmap(data, args.plans)
+        print(render_markdown(args.contract, rf).replace("# Contract lint:", "# Roadmap check:").replace(
+            "Judge the criteria themselves next: are they the right ones?", "Order and goals are the owner's call."), end="")
+        return 1 if any(x.severity == "ERROR" for x in rf) or (args.strict and any(x.severity == "WARN" for x in rf)) else 0
+    if args.cmd == "issues":
+        errs = [x for x in lint(data) if x.severity == "ERROR"]
+        if errs:
+            print(f"error: {len(errs)} lint error(s); run `contract_tool.py lint` first", file=sys.stderr)
+            return 1
+        drafts = issue_drafts(args.contract, data)
+        print(json.dumps(drafts, indent=2, ensure_ascii=False) if args.json else render_issues(drafts), end="" if not args.json else "\n")
+        return 0
 
     findings = lint(data)
     errors = [x for x in findings if x.severity == "ERROR"]
@@ -417,6 +568,9 @@ def main() -> int:
         return 1
     if errors:
         print(f"error: {len(errors)} lint error(s); run `contract_tool.py lint` first", file=sys.stderr)
+        return 1
+    if status == "approved" and not DECISION_RE.match(s((data.get("approval") or {}).get("decision"))):
+        print("error: no D-number in approval.decision; the coordinator has not picked this contract up yet (PLAN-03)", file=sys.stderr)
         return 1
     ids = [i.strip() for i in args.ids.split(",")] if args.ids else None
     print(goal_line(args.contract, data, ids, args.turns))

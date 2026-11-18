@@ -13,7 +13,8 @@ reports; it changes nothing.
 - The repository's `CLAUDE.md`, any `kb/process.md` / `kb/architecture.md`,
   the newest 10 to 20 decision-log entries, and workflow files under
   `.github/workflows/`. Rules often contradict *these*, not each other.
-- Every `plans/contract-*.yaml`, and the plans and PR bodies that cite them.
+- `roadmap.yaml`, every `plans/contract-*.yaml`, the plans and PR bodies that
+  cite them, and the open issues if GitHub is reachable (read only).
 - If `governance-config.json` exists, regenerate into a temporary directory
   outside the project (never over the live files) and
   diff: hand edits that drifted from the generator are the first suspects.
@@ -32,8 +33,8 @@ stale silently. Flag and move to `project-state.yaml`:
 
 ## 2. Scope: every rule names who it binds
 
-`applies_to` must be one of `owner | coordinator | dispatcher | acceptance |
-implementation | review | kb | audit | all`. A `dispatcher` or `acceptance`
+`applies_to` must be one of `owner | coordinator | dispatcher | specify |
+implementation | review | kb | audit | all`. A `dispatcher` or `specify`
 scope needs a rule in `roles` that defines the role. Also check that the scope is *right*: a rule about merge
 protocol scoped to `implementation` (which never merges) is dead; a rule about
 plan approval scoped to `review` binds the wrong thread.
@@ -79,8 +80,9 @@ Propose the replacement text for each flagged rule, not just the complaint.
 - The coordinator is not a relay: fix lists go through round reports, status
   is read from ledgers and PR state. A coordinator rule that forwards
   per-PR messages is a token finding and a role finding.
-- Authority stays where it belongs: scope, acceptance contracts and round-4
-  sign-off with the owner; critical merge go and plan approval with the
+- Authority stays where it belongs: scope, the roadmap, acceptance contracts
+  and round-4 sign-off with the owner; drafting them with specify, which
+  approves nothing; critical merge go and plan approval with the
   coordinator; nothing critical with a dispatcher.
 
 ## 6. Acceptance contracts
@@ -100,6 +102,18 @@ For each `plans/contract-*.yaml`, after `contract_tool.py lint`:
 
 Propose rewritten criterion text with a verify step for each one that fails.
 
+Issues and roadmap, after `contract_tool.py roadmap --plans`:
+
+- Do the GitHub issues still match `contract_tool.py issues` for the approved
+  version? An issue whose criteria text differs from the contract has drifted;
+  the contract wins.
+- Is there an issue or PR for work that no approved criterion covers, or an
+  `active` milestone whose contract the coordinator never picked up (no
+  D-number)?
+- Does `project-state.yaml` list the same active milestones as `roadmap.yaml`?
+- Do `superseded` versions and `dropped` milestones still have open PRs with
+  no owner decision (`PLAN-06`)?
+
 ## 7. Report format
 
 Use exactly this structure so the owner can act on it top-down:
@@ -116,8 +130,8 @@ One paragraph: is the ruleset safe to run threads on as-is? What must change fir
 ## Should fix (scope and roles, state leakage, drift from generator)
 - ...
 
-## Acceptance contracts
-- <C-NNN> <AC-N>: what is wrong, proposed criterion text and verify step. Omit the section when there are no contracts.
+## Acceptance contracts, issues and roadmap
+- <C-NNN> <AC-N>: what is wrong, proposed criterion text and verify step; roadmap and issue drift. Omit the section when there are no contracts.
 
 ## Token savings
 - <RULE-ID>: current N chars → proposed M chars; or "delete section X (~N tokens per thread start)".
@@ -128,8 +142,9 @@ Paste or summarise `audit_rules.py` output; mark which items the sections above 
 ## Suggested next step
 For the owner to decide, since the audit applies nothing: either "approve these
 edits via PR (critical, `META-01`)" with the list, or "change these values in
-governance-config.json and run init again: ...". A contract finding on an
-approved contract is always "new version, new owner approval".
+governance-config.json and run init again: ...". A finding on an approved
+contract or the roadmap is always "run specify: new version, new owner
+approval".
 ```
 
 Severity guide: a contradiction between two *active* rules, or a violation of

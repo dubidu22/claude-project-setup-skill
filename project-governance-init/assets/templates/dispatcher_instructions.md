@@ -20,7 +20,7 @@ compression (`THR-05`); your successor starts from those files alone.
   (issue links), anything escalated.
 
 ## What you never do
-- Approve plans, critical PRs, acceptance contracts or anything touching scope.
+- Approve plans, critical PRs, acceptance contracts, the roadmap or anything touching scope.
 - Count your own or another thread's output as owner approval (`ROLE-03`).
 - Write product code or edit the ruleset.
 

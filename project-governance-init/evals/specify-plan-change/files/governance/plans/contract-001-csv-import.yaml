@@ -1,0 +1,67 @@
+contract:
+  id: C-001
+  title: "CSV import and monthly totals"
+  milestone: "v0.1"
+  version: 1
+  status: approved
+
+goal: "I can import my bank CSV and see a monthly total per category."
+users: "only the owner"
+access: "CLI on macOS and Ubuntu"
+constraints:
+  - "transaction data never leaves the machine"
+out_of_scope:
+  - "multi-currency"
+
+criteria:
+  - id: AC-1
+    text: "Importing tests/fixtures/bank.csv stores 120 transactions"
+    priority: must
+    category: happy_path
+    verify: {type: test, how: "pytest tests/test_import.py::test_fixture_count"}
+    source: {kind: owner, ref: "interview 2026-11-10"}
+  - id: AC-2
+    text: "A CSV with a missing 'amount' column exits with code 2 and names the column"
+    priority: must
+    category: input_validation
+    verify: {type: command, how: "ledgerlite import tests/fixtures/no_amount.csv exits 2 and prints 'amount'"}
+    source: {kind: research, ref: "https://clig.dev/#errors", retrieved: 2026-11-10}
+  - id: AC-3
+    text: "Re-importing the same file adds 0 duplicate rows"
+    priority: must
+    category: data_persistence
+    verify: {type: test, how: "pytest tests/test_import.py::test_idempotent"}
+    source: {kind: owner, ref: "interview 2026-11-10"}
+  - id: AC-4
+    text: "`ledgerlite report --month 2026-10` prints one total per category for that month"
+    priority: must
+    category: happy_path
+    verify: {type: test, how: "pytest tests/test_report.py::test_monthly_totals"}
+    source: {kind: owner, ref: "interview 2026-11-10"}
+
+core_probe: "Fresh clone, follow README, import tests/fixtures/bank.csv, the October report shows 6 category totals"
+
+work_packages:
+  - {key: import, title: "CSV import with validation", label: "lane:cli", criteria: [AC-1, AC-2, AC-3]}
+  - {key: report, title: "Monthly report", label: "lane:app", criteria: [AC-4]}
+
+cut: []
+
+research:
+  categories_skipped:
+    - "error_states: covered by AC-2 for v0.1"
+    - "security_privacy: local single-user tool, no network"
+    - "accessibility: CLI only"
+    - "performance: fixture-sized data in v0.1"
+    - "platform: CI runs ubuntu and macos"
+    - "operability: exit codes covered by AC-2"
+    - "licences_dependencies: no new dependency"
+  notes: ""
+
+approval:
+  by: owner
+  date: 2026-11-11
+  decision: D-004
+  hash: 860feb3525b5
+
+changes: []

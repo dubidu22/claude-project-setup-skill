@@ -33,7 +33,7 @@ from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Any
 
-VALID_SCOPES = {"owner", "coordinator", "dispatcher", "acceptance", "implementation", "review", "kb", "audit", "all"}
+VALID_SCOPES = {"owner", "coordinator", "dispatcher", "specify", "implementation", "review", "kb", "audit", "all"}
 VOLATILE_KEYS = {
     "active_now",
     "paused",
@@ -406,7 +406,7 @@ def run_checks(data: dict[str, Any], rules: list[Rule], raw_text: str, state_tex
 
     # --- A11 optional roles: defined when used, and kept inside their authority ---
     role_scopes = {str(r.applies_to).strip() for r in rules if r.section == "roles" and r.applies_to}
-    for scope in ("dispatcher", "acceptance"):
+    for scope in ("dispatcher", "specify"):
         used = [r for r in rules if r.applies_to and scope in str(r.applies_to) and r.section != "roles"]
         if used and scope not in role_scopes:
             ids = ", ".join(r.id or "?" for r in used)
@@ -427,8 +427,8 @@ def run_checks(data: dict[str, Any], rules: list[Rule], raw_text: str, state_tex
     if over_reach:
         ids = ", ".join(r.id or "?" for r in over_reach)
         f.append(Finding("A11", "ERROR", f"{ids} give the dispatcher authority over critical work, scope or owner approval; that stays with the coordinator and the owner", "roles"))
-    owner_contract = rules_matching(r"acceptance contract[^.]*binds only after the owner|owner[^.]*approv[^.]*acceptance contract")
-    thread_contract = rules_matching(r"\b(coordinator|dispatcher|acceptance thread|review thread)\b[^.]*\b(may|can)\b[^.]*\b(approve|change|edit|amend)[^.]*acceptance contract")
+    owner_contract = rules_matching(r"owner-approved acceptance contract|owner[^.]*approv[^.]*acceptance contract")
+    thread_contract = rules_matching(r"\b(coordinator|dispatcher|specify thread|review thread)\b[^.]*\b(may|can)\b[^.]*\b(approve|change|edit|amend)[^.]*acceptance contract")
     if thread_contract:
         other = f" (contradicts `{owner_contract[0].id}`)" if owner_contract else ""
         f.append(Finding("A11", "ERROR", f"`{thread_contract[0].id}` lets a thread approve or change an acceptance contract; only the owner approves, and a change is a new version" + other, "plans_and_criticality"))

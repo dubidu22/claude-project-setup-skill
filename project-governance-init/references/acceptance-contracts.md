@@ -1,11 +1,11 @@
 # Acceptance contracts: research, criteria, freeze
 
-How a milestone's acceptance contract is drafted, approved, changed and closed
-(rules `ROLE-10`, `PLAN-03` to `PLAN-05`, `REV-03`). Init scaffolds this file
-into the workspace as `tools/acceptance-contracts.md` for the coordinator and
-the acceptance thread; the audit judges existing contracts against it.
-`tools/contract_tool.py` checks the mechanical part. Run the tool, do not read
-its source.
+How a feature idea or plan change becomes an acceptance contract, work
+packages and a roadmap update, and how a contract is approved, changed and
+closed (rules `ROLE-10`, `PLAN-03` to `PLAN-06`, `REV-03`). Specify follows
+this method; the audit judges contracts against it. Init scaffolds this file
+into the workspace as `tools/acceptance-contracts.md`. `tools/contract_tool.py`
+checks the mechanical part. Run the tool, do not read its source.
 
 ## Contents
 1. Why contracts
@@ -16,6 +16,8 @@ its source.
 6. Changing an approved contract
 7. Closing a milestone
 8. Token budget
+9. Work packages and issues
+10. The roadmap
 
 ---
 
@@ -43,19 +45,19 @@ One owner per step; no step has two.
 
 | Step | Who | Rule | Never |
 |------|-----|------|-------|
-| Interview | coordinator, with the owner | `PLAN-03` | researches or drafts criteria itself |
-| Research, draft, lint | acceptance thread (fresh, on the `implementation_and_critical_review` model) | `ROLE-10` | approves, or talks to the owner |
-| Approval | owner | `ROLE-03` | — |
-| Record approval (status, D-number, hash) | coordinator | `PLAN-03` | edits criteria |
+| Interview, research, draft, work packages, roadmap update, lint | specify thread (its own chat, on the `implementation_and_critical_review` model) | `ROLE-10` | approves; touches rules, state, code or D-numbers |
+| Approve the contract; say yes to creating issues | owner | `ROLE-03` | — |
+| Record the approval (status, date, hash); create issues | specify thread, on the owner's own message | `ROLE-10` | edits criteria afterwards |
+| Pick up: lint, log the D-number, mirror the roadmap into the state file, batch work packages by lane | coordinator | `PLAN-03` | interviews, researches or edits criteria |
 | Plans and PR proof per criterion | implementation threads | `PLAN-04` | changes a criterion |
 | Confirm claimed criteria | review threads | `REV-03` | accepts a claim without proof |
-| Close the milestone | coordinator | `PLAN-05` | closes with an open must criterion |
+| Close the milestone; handle dropped work | coordinator | `PLAN-05`, `PLAN-06` | closes with an open must criterion |
 
 A dispatcher, where one exists, has no part in acceptance contracts.
 
-The acceptance thread hands back one file and the output of
-`contract_tool.py summary` (four lines: goal, criteria counts, assumptions,
-sources). The coordinator never needs the research itself.
+The coordinator reads the output of `contract_tool.py summary` (four lines:
+goal, criteria counts, assumptions, sources) and never needs the interview or
+the research.
 
 ## 3. The seven steps
 
@@ -83,19 +85,24 @@ sources). The coordinator never needs the research itself.
    what step 4 is for.
 4. **Pareto cut.** Tag each criterion `must` (the milestone fails without it),
    `should` (in this contract, may be deferred with an issue) or `could` (not in
-   this contract). `could` items leave the contract before approval and become
-   GitHub issues per `GH-01`, so nothing researched is lost.
-5. **Lint:** `python3 tools/contract_tool.py lint plans/contract-<NNN>-<slug>.yaml`.
+   this contract). `could` items move to the contract's `cut` list with a reason
+   before approval and become `backlog` issues (section 9), so nothing
+   researched is lost. Then group the rest into work packages (section 9) and
+   update the roadmap (section 10).
+5. **Lint:** `python3 tools/contract_tool.py lint plans/contract-<NNN>-<slug>.yaml`
+   and `python3 tools/contract_tool.py roadmap roadmap.yaml --plans plans`.
    Fix every ERROR; look at every WARN.
-6. **Owner approval.** The coordinator presents: the goal sentence, the
-   `must` list, the assumptions, and the cut `could` items, as a decision card
-   with a recommendation. Only the owner's own message approves. The
-   coordinator then sets `status: approved`, fills `approval` (owner, date,
-   D-number, and `hash` from `contract_tool.py hash`) and logs the D-entry.
-   From then on lint fails if a criterion, its verify step, the goal or the
-   core probe is edited in place.
-7. **Freeze and execute.** From now on criteria change only by a new version
-   (section 6). Implementation plans cite the ids they cover and threads read
+6. **Owner approval.** The specify thread presents: the goal sentence, the
+   `must` list, the assumptions, the cut items, the roadmap change and the
+   issue titles. Only the owner's own message approves. The specify thread
+   then sets `status: approved` and fills `approval.by`, `date` and `hash`
+   (from `contract_tool.py hash`). From then on lint fails if a criterion, its
+   verify step, the goal or the core probe is edited in place.
+7. **Pickup and execution.** The coordinator lints the contract, logs the
+   approval as a D-number (in `approval.decision` and the decision log) and
+   batches the work packages. `contract_tool.py goal` refuses a contract
+   without a D-number, so no loop starts on a contract the coordinator has not
+   seen. Implementation plans cite the ids they cover and threads read
    `python3 tools/contract_tool.py brief <contract> [--ids AC-3,AC-4]` instead
    of the whole file. A thread working in Claude Code can run the loop with the
    line printed by `python3 tools/contract_tool.py goal <contract> [--ids ...]
@@ -148,15 +155,19 @@ parentheses.
 
 ## 6. Changing an approved contract
 
-Approved criteria are frozen (`PLAN-03`). If one turns out wrong:
+Approved criteria are frozen (`PLAN-03`). A change comes from the owner (new
+wish) or from a thread that found a criterion wrong or impossible (it stops
+work on that criterion and reports the evidence to the coordinator, who asks
+the owner). Either way the change goes through specify:
 
-1. The thread that found it stops work on that criterion and reports it with
-   evidence (why it is wrong or impossible).
-2. The coordinator has an acceptance thread draft version N+1: copy the file,
-   bump `contract.version`, set `status: draft`, clear `approval`, record the
-   change in `changes`.
-3. Owner approval, a new D-number and a new hash, exactly as in step 6. The old version
-   gets `status: superseded`.
+1. Copy the file to `contract-<NNN>-<slug>-v<N>.yaml`, bump
+   `contract.version`, set `status: draft`, clear `approval`, and record what
+   changed and why in `changes`. Research only what the change touches.
+2. Owner approval and a new hash, as in step 6; the previous file gets
+   `status: superseded`. The coordinator logs a new D-number on pickup.
+3. If the new version removes a criterion that has open work, `PLAN-06`
+   applies: no new work on it, open PRs finish their round, the owner decides
+   per PR whether to merge or close.
 
 Never edit an approved file in place; a criterion that silently changes after
 review is the failure this whole method exists to prevent, and `approval.hash`
@@ -180,7 +191,7 @@ core probe fails; that is why it is separate.
 
 Contracts cost tokens three times: drafting, reading, verifying. Keep each small.
 
-- **Drafting.** Research stays in the acceptance thread; only the four-line
+- **Drafting.** Interview and research stay in the specify thread; only the four-line
   summary reaches the coordinator. Open at most two sources per category and
   stop a category when a source adds no new `must` candidate. On the `frugal`
   profile, research only the categories the interview made relevant and skip
@@ -193,3 +204,44 @@ Contracts cost tokens three times: drafting, reading, verifying. Keep each small
   loops stop at `execution_profile.token_economy.goal_turn_cap` turns.
 - **Size.** Aim for 10 to 30 `must` criteria; lint warns above 40. A criterion
   nobody would notice failing is a `could`.
+
+## 9. Work packages and issues
+
+A contract's `work_packages` group its `must` and `should` criteria into a few
+units of work, each with one `lane:*` label. They exist so that GitHub issues
+can be generated instead of written: `contract_tool.py issues <contract>`
+prints one issue draft per package (title, label, milestone, the criteria as a
+checklist with their verify steps, and a pointer to the contract version and
+hash) and one `backlog` draft per `cut` item.
+
+- Batch by lane, not by criterion: three to six packages per milestone. The
+  ruleset batches PRs by lane (`LANE-01`); issues follow the same grain.
+- Every `must` and `should` criterion is in exactly one package; lint fails
+  otherwise.
+- An issue cites criteria, it never defines them. The contract is the only
+  place a criterion is written, because issues can be edited by anyone and
+  nothing freezes them. To change a criterion, change the contract.
+- Issues are created only after the owner's explicit yes, after approval. On
+  a new contract version, regenerate the drafts and tell the owner which
+  existing issues they replace; closing or editing those is the owner's call.
+- Regrouping packages does not change the hash: it covers the goal, the core
+  probe and the criteria, not how the work is cut.
+
+## 10. The roadmap
+
+`roadmap.yaml` in the workspace root is the ordered list of milestones:
+`name`, `goal` (one sentence), `status` (`planned`, `active`, `done`,
+`dropped`) and `contract` (its id). Order is priority.
+
+- The owner decides it; a specify thread edits it; the coordinator mirrors
+  the `active` entries into `project-state.yaml` on pickup and sets `done`
+  when it closes a milestone (`PLAN-05`). Nobody else writes it.
+- A milestone turns `active` only together with an approved contract.
+  `contract_tool.py roadmap roadmap.yaml --plans plans` checks this, along
+  with duplicate names, dropped milestones that still have an approved
+  contract, and contracts for milestones that are not on the roadmap.
+- Reordering, postponing or dropping needs no research and no contract
+  change, only the owner's decision. Dropping a milestone with open work
+  triggers `PLAN-06`.
+- Keep it short: one entry per milestone, no task lists. Tasks are the work
+  packages of the milestone's contract.

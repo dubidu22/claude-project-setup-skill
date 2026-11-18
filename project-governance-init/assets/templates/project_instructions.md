@@ -29,7 +29,8 @@ the situation changes. Re-read both files immediately before acting on them.
 ## What stops for the owner
 - Anything that changes product scope, external contracts or the roadmap.
 - A critical PR that reaches review round 4 (hard stop, owner sign-off).
-- Approving or changing an acceptance contract (`PLAN-03`).
+- Product scope, the roadmap and acceptance criteria: the owner decides them in a
+  specify thread, never here.
 - The owner's hand steps listed in `ROLE-02`.
 - The notification triggers in `project-state.yaml` → post in chat and wait.
 
