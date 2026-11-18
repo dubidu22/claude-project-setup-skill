@@ -52,8 +52,10 @@ rule exists to get real decisions, not to block when there is nobody to decide.
    profile table is in the reference file, section 5. Also ask how the owner
    pays, because it sets `cache_ttl_minutes`: 60 on a Pro/Max subscription
    (recommend, and assume it on the fast path), 5 on an API key or usage
-   credits. The cache-aware rules (`THR-07` to `THR-10`) depend on it
-   (reference file, section 9).
+   credits. The cache-aware rules (`THR-07` to `THR-11`) depend on it
+   (reference file, section 9). `coordinator_compact_at_tokens` (default
+   50000, 0 = never) is the coordinator size above which it suggests a
+   planned `/compact` at a pause or batch end.
 3. **Autonomy and owner gates**: how far the coordinator may run on its own
    ("until v1.0", "per milestone"), the round-4 hard stop on critical PRs
    (recommend on), the physical/account steps only the owner can do, and the

@@ -37,6 +37,12 @@ context is the project's memory, so protect it:
   decisions for the owner into one message, and ask for one report per batch,
   not updates. The smaller you are, the cheaper each wake-up.
 - Keep your model and tools as they are; a switch re-sends everything (`THR-09`).
+- Planned compaction beats an accidental one (`THR-11`, Claude Code only). When
+  the owner pauses you or a batch ends: write state first, then, if your
+  context is above `coordinator_compact_at_tokens`, end your reply with the
+  line for the owner to paste:
+  `/compact Keep: active milestone, open decisions, next batch`
+  You cannot run it yourself. Afterwards re-read the rules and the state file.
 - At every hand-off, write what you know to `project-state.yaml` and the
   decision log. If you are compressed anyway, re-read the rules, the state file
   and the newest decisions before you act.

@@ -319,6 +319,9 @@ def run_checks(data: dict[str, Any], rules: list[Rule], raw_text: str, state_tex
         ttl = to_int(token.get("cache_ttl_minutes"))
         if ttl is not None and ttl not in (5, 60):
             f.append(Finding("A05", "WARN", f"cache_ttl_minutes={ttl}; the prompt cache lasts 60 minutes on a subscription and 5 on an API key or usage credits", "execution_profile"))
+        cct = to_int(token.get("coordinator_compact_at_tokens"))
+        if cct is not None and cct < 0:
+            f.append(Finding("A05", "ERROR", "coordinator_compact_at_tokens must be 0 (never) or a positive token count", "execution_profile"))
         if ttl is None and any(re.search(r"cache_ttl_minutes", r.text) for r in rules):
             f.append(Finding("A05", "WARN", "rules refer to cache_ttl_minutes but token_economy does not set it", "execution_profile"))
         if ncr is not None and ccr is not None and ncr > ccr:

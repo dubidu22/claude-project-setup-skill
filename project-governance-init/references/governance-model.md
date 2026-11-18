@@ -51,8 +51,7 @@ ledgers, it is replaced at its first compression (`THR-05`). The dispatcher is
 on by default; turn it off only for a small project with one or two lanes.
 
 **The coordinator is the one thread that is never replaced** (`THR-02`,
-`THR-06`). It lives for the whole project, and the design goal is that it never
-compresses: it reads summaries, ledgers and state files only, hands every
+`THR-06`). It lives for the whole project and stays small: it reads summaries, ledgers and state files only, hands every
 lookup to a worker, and writes what it knows to `project-state.yaml` and the
 decision log at each hand-off, so that a compression, if one happens anyway,
 loses nothing. Every other thread is disposable by design.
@@ -184,7 +183,7 @@ D-001. The invariants are the things that, when violated, caused real damage:
 | `roles` | ROLE-01..11 | one rule per role, plus owner hand steps and the approval rule; ROLE-10 (specify) and ROLE-11 (dispatcher) only when enabled |
 | `autonomy` | AUTO-01..03 | horizon, what waits for the owner, working ahead |
 | `lanes` | LANE-01..04 | batching, concurrency cap, ownership + infra lock, release-branch exception |
-| `threads_and_watchdog` | THR-01..10 | onboarding + fitness check, atomic replacement, watchdog, where plans/reports go |
+| `threads_and_watchdog` | THR-01..11 | onboarding + fitness check, atomic replacement, watchdog, where plans/reports go |
 | `plans_and_criticality` | PLAN-01..06, CRIT-01..02 | plan-before-code, acceptance contracts (PLAN-03..06, when `acceptance_contracts` is on), what is critical, what critical requires |
 | `pull_requests_and_reviews` | PR-01..03, REV-01..03, MRG-01 | title format, CI-before-review, branch freeze, round caps, report format, criterion proof (REV-03), merge protocol |
 | `testing_and_ci` | TST-01..02, CI-01 | tests first, never weaken tests, fast vs full matrix |
@@ -254,7 +253,14 @@ against its own live runs and are deliberately not adopted here.
 wake-up after the cache lifetime re-sends its whole context. That cost grows
 with its context and with the number of wake-ups, which is why `THR-06` keeps
 it small and why decisions for the owner and reports from the dispatcher are
-batched. The study's own advice for a long-lived session is to compact it
-while the cache is still warm, before a long wait; whether the coordinator
-does that is the owner's call (it trades memory in the chat for cost, and the
-state files exist so that nothing is lost either way).
+batched. It also compacts on purpose rather than by accident: at a pause and
+at the end of each batch it writes state and, above
+`coordinator_compact_at_tokens` (default 50,000; 0 turns this off), hands the
+owner the `/compact Keep: ...` line to paste while the cache is still warm
+(`THR-11`). Compacting before a wait cost 2.5x a fresh session in the study,
+after it 9.7x. The owner types the command; nothing documented lets the
+coordinator run it itself, and it exists in Claude Code only. As a safety net,
+Claude Code's `idleCompaction` setting can compact a long idle conversation on
+the one-hour cache shortly before the cache expires; per the study it only
+applies above 200,000 tokens of context, so a small coordinator will not
+trigger it.

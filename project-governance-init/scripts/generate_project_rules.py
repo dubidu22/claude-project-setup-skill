@@ -18,7 +18,7 @@ stack_key, fast_checks, target_platforms, coordinator_model, critical_worker_mod
 standard_worker_model, profile_key, token_cfg{...}, autonomy_horizon, round4_hard_stop,
 owner_hand_steps, notify_triggers, execution_lanes, ownership_labels, lane_mapping_note,
 allow_parallel_release_branch, no_telemetry, banned_licences, custom_invariants,
-acceptance_contracts, dispatcher, cache_ttl_minutes, active_milestones, today.
+acceptance_contracts, dispatcher, cache_ttl_minutes, coordinator_compact_at_tokens, active_milestones, today.
 
 `workspace_root` is where shared files (plans/, project-state.yaml) live: the
 claude.ai Project mount `/mnt/project-files` or a folder inside a repo checkout.
@@ -216,6 +216,7 @@ def default_config(project_name: str = "my-project") -> dict[str, Any]:
         "acceptance_contracts": True,
         "dispatcher": True,
         "cache_ttl_minutes": 60,
+        "coordinator_compact_at_tokens": 50000,
         "active_milestones": ["v0.1"],
     }
 
@@ -311,6 +312,9 @@ def run_wizard() -> dict[str, Any]:
         "balanced",
     )
     token_cfg = dict(TOKEN_PROFILES[profile_key])
+    coordinator_compact_at_tokens = int(
+        ask("Coordinator context size (tokens) above which it suggests a planned /compact at a pause or batch end (0 = never)", "50000")
+    )
     cache_ttl_minutes = int(
         ask_choice(
             "Prompt cache lifetime in minutes (60 on a Pro/Max subscription, 5 on an API key or usage credits)",
@@ -425,6 +429,7 @@ def run_wizard() -> dict[str, Any]:
         "standard_worker_model": standard_worker_model,
         "profile_key": profile_key,
         "cache_ttl_minutes": cache_ttl_minutes,
+        "coordinator_compact_at_tokens": coordinator_compact_at_tokens,
         "token_cfg": token_cfg,
         "autonomy_horizon": autonomy_horizon,
         "round4_hard_stop": round4_hard_stop,
@@ -576,6 +581,7 @@ def render_rules_yaml(cfg: dict[str, Any]) -> str:
         f"    offload_heavy_checks_to_ci: {str(t['offload_heavy_checks_to_ci']).lower()}",
         f"    goal_turn_cap: {t['goal_turn_cap']}",
         f"    cache_ttl_minutes: {int(cfg.get('cache_ttl_minutes', 60))}",
+        f"    coordinator_compact_at_tokens: {int(cfg.get('coordinator_compact_at_tokens', 50000))}",
         "",
         "meta:",
         "  - id: META-01",
@@ -669,7 +675,16 @@ def render_rules_yaml(cfg: dict[str, Any]) -> str:
         *dispatcher_thread_rules,
         "  - id: THR-06",
         "    applies_to: coordinator",
-        f"    rule: {yaml_quote('The coordinator lives for the whole project and keeps its context small enough not to compress: it reads summaries, ledgers and state files, never diffs, logs, research or whole contracts, and hands lookups to a thread that is already running. It writes what it knows to ' + ws + '/project-state.yaml and the decision log at each hand-off, and re-reads them and the rules after any compression.')}",
+        f"    rule: {yaml_quote('The coordinator lives for the whole project and keeps its context small: it reads summaries, ledgers and state files, never diffs, logs, research or whole contracts, and hands lookups to a thread that is already running. It writes what it knows to ' + ws + '/project-state.yaml and the decision log at each hand-off, and re-reads them and the rules after any compression.')}",
+        *(
+            [
+                "  - id: THR-11",
+                "    applies_to: coordinator",
+                '    rule: "At a pause and at the end of each batch, after writing state: if your context is above execution_profile.token_economy.coordinator_compact_at_tokens, give the owner this line to paste while the cache is warm: /compact Keep: active milestone, open decisions, next batch. Claude Code only; do not wait for it."',
+            ]
+            if int(cfg.get("coordinator_compact_at_tokens", 50000)) > 0
+            else []
+        ),
         "  - id: THR-07",
         "    applies_to: all",
         '    rule: "A thread silent for longer than execution_profile.token_economy.cache_ttl_minutes pays for its whole history again on its next message. Before such a wait, write a three-line handoff (goal, done, next) into your plan or round report. Except for the coordinator, work that resumes after the gap goes to a fresh thread started from that handoff."',

@@ -72,6 +72,8 @@ size (governance-model section 9). First, habits that throw the cache away:
 - the coordinator woken many times a day for single questions or status
   updates, or reading diffs, logs or whole contracts
 - plans and round reports without a current three-line handoff
+- a coordinator rule that forbids compaction outright, or one that has the
+  coordinator compact after a long wait instead of before it
 - `cache_ttl_minutes` that does not match how the owner pays (60 on a
   subscription, 5 on an API key or usage credits)
 

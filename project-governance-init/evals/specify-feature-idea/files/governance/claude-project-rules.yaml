@@ -58,6 +58,7 @@ execution_profile:
     offload_heavy_checks_to_ci: true
     goal_turn_cap: 20
     cache_ttl_minutes: 60
+    coordinator_compact_at_tokens: 50000
 
 meta:
   - id: META-01
@@ -145,7 +146,10 @@ threads_and_watchdog:
     rule: "The dispatcher keeps its whole working state in ./governance/plans/batch-<NNN>.md and the ledgers, so it is replaced at its first compression, at the next hand-off."
   - id: THR-06
     applies_to: coordinator
-    rule: "The coordinator lives for the whole project and keeps its context small enough not to compress: it reads summaries, ledgers and state files, never diffs, logs, research or whole contracts, and hands lookups to a thread that is already running. It writes what it knows to ./governance/project-state.yaml and the decision log at each hand-off, and re-reads them and the rules after any compression."
+    rule: "The coordinator lives for the whole project and keeps its context small: it reads summaries, ledgers and state files, never diffs, logs, research or whole contracts, and hands lookups to a thread that is already running. It writes what it knows to ./governance/project-state.yaml and the decision log at each hand-off, and re-reads them and the rules after any compression."
+  - id: THR-11
+    applies_to: coordinator
+    rule: "At a pause and at the end of each batch, after writing state: if your context is above execution_profile.token_economy.coordinator_compact_at_tokens, give the owner this line to paste while the cache is warm: /compact Keep: active milestone, open decisions, next batch. Claude Code only; do not wait for it."
   - id: THR-07
     applies_to: all
     rule: "A thread silent for longer than execution_profile.token_economy.cache_ttl_minutes pays for its whole history again on its next message. Before such a wait, write a three-line handoff (goal, done, next) into your plan or round report. Except for the coordinator, work that resumes after the gap goes to a fresh thread started from that handoff."
