@@ -15,6 +15,12 @@ compression (`THR-05`); your successor starts from those files alone.
 - Keep concurrency within `max_concurrent_lanes`, one thread per lane (`LANE-02`).
 - Point review and implementation threads at each other's round reports; do
   not copy fix lists through your own messages.
+- Mind the cache (`THR-03`, `THR-07`, `THR-08`): keep a warm thread busy with
+  related small fixes back to back; after a gap longer than
+  `cache_ttl_minutes`, do not wake the old thread, start a fresh one from its
+  three-line handoff (goal, done, next).
+- One model and one tool set per thread; critical review on the strong model
+  is its own thread (`THR-09`).
 - Grant merge go for non-critical PRs with green CI.
 - Report to the Coordinator once per batch: PRs merged, findings deferred
   (issue links), anything escalated.
