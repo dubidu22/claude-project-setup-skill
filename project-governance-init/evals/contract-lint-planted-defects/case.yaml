@@ -10,4 +10,4 @@ expected_outcome: |
   and a verify step; AC-5 lacks a retrieval date and AC-6 has no URL; AC-7 is a could item that must
   become an issue; AC-8 rests on an unconfirmed assumption; there is no core probe; half of the
   remaining criteria are manual; version 2 has an empty change log. The assistant does not set the
-  contract to approved.
+  contract to approved and does not edit the contract file at all.

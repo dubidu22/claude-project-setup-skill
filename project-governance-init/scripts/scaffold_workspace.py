@@ -12,6 +12,7 @@ files by generate_project_rules.py) and renders the templates in
       plans/README.md
       plans/contract-template.yaml  acceptance contract template (PLAN-03)
       tools/contract_tool.py      contract lint and /goal helper, copied as-is
+      tools/acceptance-contracts.md  the method the acceptance thread follows, copied as-is
       kb/README.md
       kb/decision-log.md          with D-001 recording adoption of the ruleset
       ledger/implementation.md
@@ -38,6 +39,7 @@ from typing import Any
 
 TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "assets" / "templates"
 CONTRACT_TOOL = Path(__file__).resolve().parent / "contract_tool.py"
+CONTRACT_METHOD = Path(__file__).resolve().parent.parent / "references" / "acceptance-contracts.md"
 CONTRACT_TEMPLATE = Path("plans") / "contract-template.yaml"
 DISPATCHER_TEMPLATE = Path("dispatcher_instructions.md")
 
@@ -154,7 +156,8 @@ def main() -> int:
     )
     cfg["contract_line"] = (
         "Before a milestone's first plan, interview the owner, have an acceptance thread draft the "
-        "acceptance contract, read only its `contract_tool.py summary`, and put it to the owner (`PLAN-03`)."
+        "acceptance contract (method: `tools/acceptance-contracts.md`), read only its "
+        "`contract_tool.py summary`, and put it to the owner (`PLAN-03`)."
         if cfg.get("acceptance_contracts", True)
         else "Keep milestone goals in `project-state.yaml` current."
     )
@@ -173,6 +176,7 @@ def main() -> int:
         results.append(write(out / rel, render(tpl.read_text(encoding="utf-8"), cfg), args.force))
     if cfg.get("acceptance_contracts", True):
         results.append(write(out / "tools" / "contract_tool.py", CONTRACT_TOOL.read_text(encoding="utf-8"), args.force))
+        results.append(write(out / "tools" / "acceptance-contracts.md", CONTRACT_METHOD.read_text(encoding="utf-8"), args.force))
     if args.github:
         results.append(write(out / ".github" / "lanes.yml", lanes_yml(cfg), args.force))
 

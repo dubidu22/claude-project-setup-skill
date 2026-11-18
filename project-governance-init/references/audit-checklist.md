@@ -1,9 +1,11 @@
-# Mode B: auditing an existing ruleset
+# Audit checklist
 
-Load this after `scripts/audit_rules.py` has run. The script catches the
-mechanical problems; this checklist is for the contradictions that need a
-reader who understands what the rules are *for*. Section 6 of
-`governance-model.md` explains the invariants being checked.
+Load this after the two mechanical passes in `audit.md`. The scripts catch the
+mechanical problems; this checklist is for the findings that need a reader who
+understands what the rules and criteria are *for*. `governance-model.md`
+(section 6 for the invariants, section 1 for roles and coordinator load) and
+`acceptance-contracts.md` are the standard being checked against. The audit
+reports; it changes nothing.
 
 ## Inputs to gather
 
@@ -11,7 +13,9 @@ reader who understands what the rules are *for*. Section 6 of
 - The repository's `CLAUDE.md`, any `kb/process.md` / `kb/architecture.md`,
   the newest 10 to 20 decision-log entries, and workflow files under
   `.github/workflows/`. Rules often contradict *these*, not each other.
-- If `governance-config.json` exists, regenerate into a scratch directory and
+- Every `plans/contract-*.yaml`, and the plans and PR bodies that cite them.
+- If `governance-config.json` exists, regenerate into a temporary directory
+  outside the project (never over the live files) and
   diff: hand edits that drifted from the generator are the first suspects.
 
 ## 1. Static rules versus mutable state
@@ -64,7 +68,39 @@ number of compressions. Flag:
 
 Propose the replacement text for each flagged rule, not just the complaint.
 
-## 5. Report format
+## 5. Roles: one duty, one owner
+
+- Every role a rule is scoped to is defined in `roles`, and every thread type
+  that exists in the project has a role (a "worker thread" with no scope is
+  bound by nothing).
+- No duty has two owners. Typical overlaps: coordinator and dispatcher both
+  spawn or nudge threads; coordinator and review both grant merge go; a rule
+  scoped to `implementation` describes something only the coordinator does.
+- The coordinator is not a relay: fix lists go through round reports, status
+  is read from ledgers and PR state. A coordinator rule that forwards
+  per-PR messages is a token finding and a role finding.
+- Authority stays where it belongs: scope, acceptance contracts and round-4
+  sign-off with the owner; critical merge go and plan approval with the
+  coordinator; nothing critical with a dispatcher.
+
+## 6. Acceptance contracts
+
+For each `plans/contract-*.yaml`, after `contract_tool.py lint`:
+
+- Is every `must` criterion something the owner would notice failing? If not
+  it is a `should` or a `could`.
+- Does each criterion state one observable, binary thing, and does its verify
+  step actually prove it (a test that exists, a command with an expected result)?
+- Does the core probe prove the goal sentence end to end, from a fresh clone?
+- Are skipped categories skipped for a reason that holds for this milestone?
+- Do plans and PR bodies cite criterion ids with proof (`PLAN-04`), and did a
+  review confirm them (`REV-03`)?
+- Was the contract approved by the owner's own message, with a D-number in the
+  decision log that matches `approval.decision`?
+
+Propose rewritten criterion text with a verify step for each one that fails.
+
+## 7. Report format
 
 Use exactly this structure so the owner can act on it top-down:
 
@@ -77,8 +113,11 @@ One paragraph: is the ruleset safe to run threads on as-is? What must change fir
 ## Must fix (contradictions and invariant violations)
 - **<RULE-ID> vs <RULE-ID>** — what they say, why it bites, proposed fix (quote the new rule text).
 
-## Should fix (scope, state leakage, drift from generator)
+## Should fix (scope and roles, state leakage, drift from generator)
 - ...
+
+## Acceptance contracts
+- <C-NNN> <AC-N>: what is wrong, proposed criterion text and verify step. Omit the section when there are no contracts.
 
 ## Token savings
 - <RULE-ID>: current N chars → proposed M chars; or "delete section X (~N tokens per thread start)".
@@ -87,8 +126,10 @@ One paragraph: is the ruleset safe to run threads on as-is? What must change fir
 Paste or summarise `audit_rules.py` output; mark which items the sections above already cover.
 
 ## Suggested next step
-Either "apply fixes via PR (critical, owner approval)" with the list of edits, or
-"regenerate from governance-config.json with these config changes: ...".
+For the owner to decide, since the audit applies nothing: either "approve these
+edits via PR (critical, `META-01`)" with the list, or "change these values in
+governance-config.json and run init again: ...". A contract finding on an
+approved contract is always "new version, new owner approval".
 ```
 
 Severity guide: a contradiction between two *active* rules, or a violation of

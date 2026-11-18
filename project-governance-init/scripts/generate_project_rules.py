@@ -471,7 +471,7 @@ def render_rules_yaml(cfg: dict[str, Any]) -> str:
         extra_role_rules += [
             "  - id: ROLE-10",
             "    applies_to: acceptance",
-            f"    rule: {yaml_quote('The acceptance thread turns the coordinator' + q + 's interview notes into ' + ws + '/plans/contract-<NNN>-<slug>.yaml: binary criteria, each with a verify step and a source (research: URL and retrieval date), plus a core probe. It lints the file clean, returns only the contract_tool.py summary, and never approves it.')}",
+            f"    rule: {yaml_quote('Following ' + ws + '/tools/acceptance-contracts.md, the acceptance thread turns the coordinator' + q + 's interview notes into ' + ws + '/plans/contract-<NNN>-<slug>.yaml: binary criteria, each with a verify step and a source (research: URL and retrieval date), plus a core probe. It lints the file clean, returns only the contract_tool.py summary, and never approves it.')}",
         ]
         contract_plan_rules = [
             "  - id: PLAN-03",

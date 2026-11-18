@@ -1,9 +1,11 @@
 # Acceptance contracts: research, criteria, freeze
 
-Read this before Mode C, or when a thread asks how a contract is drafted,
-approved or changed. It describes the method behind `ROLE-10`, `PLAN-03` to
-`PLAN-05` and `REV-03`; `scripts/contract_tool.py` checks the result mechanically (the scaffold copies it
-to `<workspace_root>/tools/` so every thread can run it).
+How a milestone's acceptance contract is drafted, approved, changed and closed
+(rules `ROLE-10`, `PLAN-03` to `PLAN-05`, `REV-03`). Init scaffolds this file
+into the workspace as `tools/acceptance-contracts.md` for the coordinator and
+the acceptance thread; the audit judges existing contracts against it.
+`tools/contract_tool.py` checks the mechanical part. Run the tool, do not read
+its source.
 
 ## Contents
 1. Why contracts

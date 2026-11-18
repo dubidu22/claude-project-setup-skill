@@ -1,5 +1,5 @@
 ---
-tags: [project-governance-init, mode-c]
+tags: [project-governance-init, audit]
 max_turns: 30
 timeout_seconds: 600
 allowed_tools: [Read, Glob, Grep, Skill, Write, Edit, Bash]

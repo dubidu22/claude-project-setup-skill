@@ -4,25 +4,29 @@ A Claude skill, `project-governance-init`, that sets up or audits the governance
 
 ## What it does
 
-- **Mode A, new project**: a six-stage walkthrough (identity, model routing vs. token economy, autonomy gates, lanes and labels, quality gates, generation) that renders `claude-project-rules.yaml` and `project-state.yaml` deterministically and scaffolds the shared workspace (`plans/`, `kb/`, ledgers, coordinator instructions, GitHub lane labels).
-- **Mode B, audit**: a mechanical lint (`scripts/audit_rules.py`) plus a semantic checklist for contradictions, stale state, missing scopes and token bloat in an existing ruleset.
-- **Mode C, acceptance contract**: interview, researched and sourced acceptance criteria, Pareto cut, owner approval and a frozen, versioned contract per milestone; `scripts/contract_tool.py` lints it, hashes the approved criteria, gives worker threads a compact view and prints the `/goal` line.
-- **Optional dispatcher** (`dispatcher: true`): a disposable thread for per-PR operations, so the coordinator only handles per-batch decisions and the owner.
+One skill, two jobs, one shared knowledge base:
+
+- **Init** (`init.md`): a six-stage walkthrough (identity, model routing vs. token economy, autonomy gates, lanes and labels, quality gates, generation) that renders `claude-project-rules.yaml` and `project-state.yaml` deterministically and scaffolds the shared workspace: `plans/`, `kb/`, ledgers, coordinator instructions, GitHub lane labels, and the acceptance-contract method, template and checker. Optionally adds a dispatcher thread for per-PR operations. Also regenerates from an existing `governance-config.json`.
+- **Audit** (`audit.md`): checks an existing ruleset, state file and acceptance contracts for contradictions, unclear roles, stale state, untestable criteria and token bloat. Read-only: it reports and proposes exact fixes, and changes nothing.
+
+Both work from the same model in `references/`: roles and lanes, coordinator load and token economy, and owner-approved acceptance contracts per milestone.
 
 ## Layout
 
 ```
 project-governance-init/
-├── SKILL.md                       instructions Claude follows
+├── SKILL.md                       picks init or audit
+├── init.md                        set up or regenerate (writes files)
+├── audit.md                       check and report (read-only)
 ├── scripts/
-│   ├── generate_project_rules.py  config JSON -> rules + state YAML
-│   ├── audit_rules.py             mechanical ruleset audit
-│   ├── scaffold_workspace.py      renders assets/templates into the workspace
-│   └── contract_tool.py           acceptance-contract lint, summary, brief, hash, /goal line
+│   ├── generate_project_rules.py  config JSON -> rules + state YAML      (init)
+│   ├── scaffold_workspace.py      renders assets/templates into the workspace (init)
+│   ├── audit_rules.py             mechanical ruleset check, read-only    (audit, init self-check)
+│   └── contract_tool.py           acceptance-contract lint, summary, brief, hash, /goal line (read-only)
 ├── references/
 │   ├── governance-model.md        the model, the five invariants, rule catalog
-│   ├── audit-checklist.md         Mode B checklist and report format
-│   └── acceptance-contracts.md    Mode C method: research, criteria, freeze
+│   ├── acceptance-contracts.md    how a contract is researched, written, approved, frozen
+│   └── audit-checklist.md         semantic checks and report format
 ├── assets/templates/              scaffold templates
 └── evals/                         test cases (claude plugin eval layout)
 ```
