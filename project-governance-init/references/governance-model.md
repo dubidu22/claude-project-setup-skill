@@ -24,7 +24,9 @@ one repo, each with a role and a narrow remit:
 | Role | Does | Never does |
 |------|------|------------|
 | **owner** (human) | sets goals, scope, milestones; performs hand steps (publishing, hardware tests, repo settings); gives sign-off | — |
-| **coordinator** | splits work into lane batches, spawns/replaces threads, approves plans, relays fix lists, grants merge go, logs D-numbers | writes product code; approves scope changes |
+| **coordinator** | splits work into lane batches, spawns/replaces threads, approves plans, grants merge go, logs D-numbers; reads ledgers and PR state instead of relaying messages | writes product code; approves scope changes or acceptance contracts |
+| **dispatcher** (optional) | runs one batch at a time: spawns, watches and replaces worker threads, keeps `batch-<NNN>.md` and ledgers current, grants merge go for non-critical PRs | approves plans, critical PRs or anything touching scope |
+| **acceptance** (with acceptance contracts) | researches and drafts a milestone's acceptance contract, lints it, hands back a summary | approves it; talks to the owner |
 | **implementation** | reads KB + plan, writes tests then code inside its lane, opens PRs, answers findings with exact fix lists | merges, pushes to main, force-pushes |
 | **review** | reviews a batch's PRs in rounds, writes round reports, checks CI, squash-merges on coordinator go | authors the PR it reviews |
 | **kb** | compiles decisions into the decision-log PR on the configured cadence and self-merges it | reviews code |
@@ -36,6 +38,18 @@ itself into "the review thread said it was fine".
 
 Every rule has an `applies_to` scope from this list (or `all`) so a thread can
 filter the ruleset to what binds it. A rule without a scope binds nobody.
+
+**Coordinator load.** The coordinator's own work is per batch (milestones, plan
+approval, D-numbers, the owner); everything per PR is traffic. Two things keep
+it small. First, by default: fix lists travel through round reports, threads
+post one line per hand-off, and the coordinator reads ledgers and PR state
+instead of messages (`ROLE-04`, `THR-04`). Second, opt-in with `dispatcher:
+true`: a dispatcher takes the per-PR operations (`ROLE-11`, `LANE-02`,
+`THR-01`, `THR-03`). Because all of its state is in `batch-<NNN>.md` and the
+ledgers, it is replaced at its first compression (`THR-05`), while the
+coordinator, now receiving one report per batch, stays long-lived. Turn it on
+with three or more concurrent lanes, or when the coordinator compresses more
+than once per batch.
 
 ## 2. Lanes versus file-ownership labels
 
@@ -84,8 +98,9 @@ replacement happens **at the next hand-off**, after the current atomic step
 (a review round, a fix commit, a KB PR) completes. Replacing mid-step loses the
 step's working state and produces half-written reports or orphaned branches.
 
-The **watchdog** is the coordinator's timer: whenever a thread owes output, the
-coordinator checks after `watchdog_interval_minutes`; after
+The **watchdog** is the coordinator's (or dispatcher's) timer: whenever a thread
+owes output, it looks at the thread's last commit or file change after
+`watchdog_interval_minutes` and nudges only when nothing moved; after
 `watchdog_max_nudges` without progress it replaces the thread or escalates.
 Shorter intervals cost coordinator tokens; longer ones cost wall-clock time.
 
@@ -114,6 +129,8 @@ where bad models cost the most.
 | frugal | 2 | 1 | 120 min | 1 | critical_only | per milestone/batch | ultra_terse |
 | balanced | 3 | 2 | 60 min | 2 | light_every_batch | daily | terse_batched |
 | max_velocity | 3 | 2 | 30 min | 2 | full_every_batch | daily | standard |
+
+`goal_turn_cap` (20 / 30 / 40) bounds a `/goal` loop on contract criteria.
 
 Pick **frugal** for solo side projects, long autonomy horizons, or private
 repos paying for Actions minutes. Pick **balanced** by default. Pick
@@ -155,11 +172,11 @@ D-001. The invariants are the things that, when violated, caused real damage:
 | `project_profile` | — | stack preset, target platforms, fast checks, local env, lanes, labels, mapping note, `workspace_root`, `state_file`, `plans_dir` |
 | `execution_profile` | — | `model_routing` (3 roles) and `token_economy` (profile name + 10 numbers/enums) |
 | `meta` | META-01..02 | ruleset edits are critical; state lives elsewhere |
-| `roles` | ROLE-01..09 | one rule per role, plus owner hand steps and the approval rule |
+| `roles` | ROLE-01..11 | one rule per role, plus owner hand steps and the approval rule; ROLE-10 (acceptance) and ROLE-11 (dispatcher) only when enabled |
 | `autonomy` | AUTO-01..03 | horizon, what waits for the owner, working ahead |
 | `lanes` | LANE-01..04 | batching, concurrency cap, ownership + infra lock, release-branch exception |
-| `threads_and_watchdog` | THR-01..04 | onboarding + fitness check, atomic replacement, watchdog, where plans/reports go |
-| `plans_and_criticality` | PLAN-01..04, CRIT-01..02 | plan-before-code, acceptance contracts (PLAN-03/04, when `acceptance_contracts` is on), what is critical, what critical requires |
+| `threads_and_watchdog` | THR-01..05 | onboarding + fitness check, atomic replacement, watchdog, where plans/reports go |
+| `plans_and_criticality` | PLAN-01..05, CRIT-01..02 | plan-before-code, acceptance contracts (PLAN-03..05, when `acceptance_contracts` is on), what is critical, what critical requires |
 | `pull_requests_and_reviews` | PR-01..03, REV-01..03, MRG-01 | title format, CI-before-review, branch freeze, round caps, report format, criterion proof (REV-03), merge protocol |
 | `testing_and_ci` | TST-01..02, CI-01 | tests first, never weaken tests, fast vs full matrix |
 | `github_kb_and_release` | GH-01, KB-01, REL-01 | issues same day, decision logging, release branching |
@@ -176,16 +193,13 @@ audit can diff "what the generator would emit" against "what is there now".
 
 ## 8. Acceptance contracts
 
-A plan says how a thread will build something; a contract says when the
-milestone is done, in terms the owner approved before any code exists. With
-`acceptance_contracts` on (the default), `PLAN-03` requires an owner-approved
-contract per milestone, `PLAN-04` ties plans and PRs to its criterion ids, and
-`REV-03` makes reviewers re-run the claimed checks, reading the diff and the
-contract before the author's framing.
-
-Research and drafting run in a fresh worker thread so that search results never
-enter the coordinator's context; the coordinator reads only the three-line
-`contract_tool.py summary`. Criteria are binary, each has a verify step, and
-every researched one names its URL and retrieval date. The full method, the
-criterion-writing rules and the research categories are in
-`references/acceptance-contracts.md`.
+A plan says how a thread will build something; an acceptance contract says when
+the milestone is done, in terms the owner approved before any code exists. With
+`acceptance_contracts` on (the default): the coordinator interviews the owner
+and an acceptance thread researches and drafts (`PLAN-03`, `ROLE-10`); only the
+owner approves, and `approval.hash` freezes the criteria; plans and PRs cite
+criterion ids with proof (`PLAN-04`); reviewers confirm the claims, reading the
+diff and the contract before the author's framing (`REV-03`); the coordinator
+closes the milestone when every must criterion and the core probe pass
+(`PLAN-05`). Method, criterion rules, research categories and the token budget
+are in `references/acceptance-contracts.md`.

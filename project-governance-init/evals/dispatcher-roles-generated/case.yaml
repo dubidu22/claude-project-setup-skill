@@ -1,0 +1,12 @@
+schema_version: "1.1"
+name: dispatcher-roles-generated
+expected_outcome: |
+  The assistant recognises the overloaded-coordinator description and three concurrent lanes as the
+  case for the optional dispatcher, sets dispatcher true in the config and generates
+  ./out/claude-project-rules.yaml with a dispatcher role rule, with concurrency, fitness-check and
+  watchdog rules scoped to the dispatcher, a merge rule that limits the dispatcher to non-critical
+  PRs, and a coordinator role rule that no longer relays fix lists or manages thread lifecycles. No
+  rule lets the dispatcher approve plans, critical PRs, scope or acceptance contracts. The scaffold
+  includes dispatcher_instructions.md next to the coordinator's project instructions. The rules
+  pass the mechanical audit with zero errors, and the final message states in a few lines which
+  thread owns which duty.

@@ -1,8 +1,8 @@
 # Acceptance contracts: research, criteria, freeze
 
 Read this before Mode C, or when a thread asks how a contract is drafted,
-approved or changed. It describes the method behind `PLAN-03`, `PLAN-04` and
-`REV-03`; `scripts/contract_tool.py` checks the result mechanically (the scaffold copies it
+approved or changed. It describes the method behind `ROLE-10`, `PLAN-03` to
+`PLAN-05` and `REV-03`; `scripts/contract_tool.py` checks the result mechanically (the scaffold copies it
 to `<workspace_root>/tools/` so every thread can run it).
 
 ## Contents
@@ -13,6 +13,7 @@ to `<workspace_root>/tools/` so every thread can run it).
 5. Research categories
 6. Changing an approved contract
 7. Closing a milestone
+8. Token budget
 
 ---
 
@@ -24,6 +25,10 @@ rounds argue about "done" instead of checking it, and every thread reads the
 milestone goal a little differently. With it, "done" is a list of binary checks
 that a `/goal` loop, a reviewer and CI can all run.
 
+Naming: the ruleset already uses "contract" for layer and external contracts
+(`CRIT-01`, `AUTO-02`). This document always means the *acceptance contract*,
+and rule text spells it out.
+
 The method combines two sources: the goal-engine flow (interview, research
 best-practice criteria, versioned contract, approval, autonomous build until the
 criteria hold) and the evidence discipline of sourced legal gates (every
@@ -32,19 +37,23 @@ reported, never papered over).
 
 ## 2. Who does what
 
-| Step | Thread | Why there |
-|------|--------|-----------|
-| Interview | coordinator, with the owner | the owner's answers are scope (`AUTO-02`) |
-| Research + draft | a fresh worker thread on the `implementation_and_critical_review` model | research pages never enter the coordinator's context |
-| Lint | the drafting thread, then the coordinator | `contract_tool.py lint` must be clean before the owner sees it |
-| Approval | owner only (`ROLE-03`) | acceptance criteria are product scope |
-| Logging | coordinator: D-number for the approval | `KB-01` |
-| Execution | implementation threads, optionally via `/goal` | plans cite criterion ids (`PLAN-04`) |
-| Verification | review threads (`REV-03`), CI | claimed criteria are re-run, not believed |
+One owner per step; no step has two.
 
-The drafting thread hands back one file and a three-line summary (criteria
-count by priority, open assumptions, sources used). The coordinator never needs
-the research itself.
+| Step | Who | Rule | Never |
+|------|-----|------|-------|
+| Interview | coordinator, with the owner | `PLAN-03` | researches or drafts criteria itself |
+| Research, draft, lint | acceptance thread (fresh, on the `implementation_and_critical_review` model) | `ROLE-10` | approves, or talks to the owner |
+| Approval | owner | `ROLE-03` | — |
+| Record approval (status, D-number, hash) | coordinator | `PLAN-03` | edits criteria |
+| Plans and PR proof per criterion | implementation threads | `PLAN-04` | changes a criterion |
+| Confirm claimed criteria | review threads | `REV-03` | accepts a claim without proof |
+| Close the milestone | coordinator | `PLAN-05` | closes with an open must criterion |
+
+A dispatcher, where one exists, has no part in acceptance contracts.
+
+The acceptance thread hands back one file and the output of
+`contract_tool.py summary` (four lines: goal, criteria counts, assumptions,
+sources). The coordinator never needs the research itself.
 
 ## 3. The seven steps
 
@@ -80,11 +89,15 @@ the research itself.
    `must` list, the assumptions, and the cut `could` items, as a decision card
    with a recommendation. Only the owner's own message approves. The
    coordinator then sets `status: approved`, fills `approval` (owner, date,
-   D-number) and logs the D-entry.
+   D-number, and `hash` from `contract_tool.py hash`) and logs the D-entry.
+   From then on lint fails if a criterion, its verify step, the goal or the
+   core probe is edited in place.
 7. **Freeze and execute.** From now on criteria change only by a new version
-   (section 6). Implementation plans cite the ids they cover. A thread working
-   in Claude Code can run the loop with the line printed by
-   `python3 tools/contract_tool.py goal <contract> [--ids AC-3,AC-4] [--turns N]`.
+   (section 6). Implementation plans cite the ids they cover and threads read
+   `python3 tools/contract_tool.py brief <contract> [--ids AC-3,AC-4]` instead
+   of the whole file. A thread working in Claude Code can run the loop with the
+   line printed by `python3 tools/contract_tool.py goal <contract> [--ids ...]
+   --turns <goal_turn_cap>`.
 
 ## 4. Writing a good criterion
 
@@ -113,21 +126,23 @@ The lint script warns on them.
 
 ## 5. Research categories
 
-Go through each category that applies and note which ones you skipped and why.
-This is where the hidden criteria live.
+Go through every category. Each one needs at least one criterion or an entry
+in `research.categories_skipped` as `name: reason`; lint warns otherwise. This
+is where the hidden criteria live. The category keys are the names in
+parentheses.
 
 | Category | Typical criteria |
 |----------|------------------|
-| Happy path | the core flow end to end, with real-looking data |
-| Input validation | empty, too long, wrong type, wrong encoding, duplicates |
-| Error states | network down, disk full, permission denied, partial failure; message names the cause and the fix |
-| Data and persistence | survives restart, migration forward and back, backup/restore, concurrent writes |
-| Security and privacy | authN/authZ if more than one user, secrets never logged, OWASP items relevant to the surface, no telemetry (`INV-03`) |
-| Accessibility | keyboard-only use, contrast, screen-reader names (WCAG 2.2 AA where a UI exists) |
-| Performance budgets | explicit numbers on named hardware or the CI runner |
-| Platform | each target platform in `project_profile.target_platforms` |
-| Operability | logs, exit codes, `--help`, config errors, upgrade path |
-| Licences and dependencies | `INV-01`; new dependencies named in the contract if the milestone needs them |
+| Happy path (`happy_path`) | the core flow end to end, with real-looking data |
+| Input validation (`input_validation`) | empty, too long, wrong type, wrong encoding, duplicates |
+| Error states (`error_states`) | network down, disk full, permission denied, partial failure; message names the cause and the fix |
+| Data and persistence (`data_persistence`) | survives restart, migration forward and back, backup/restore, concurrent writes |
+| Security and privacy (`security_privacy`) | authN/authZ if more than one user, secrets never logged, OWASP items relevant to the surface, no telemetry (`INV-03`) |
+| Accessibility (`accessibility`) | keyboard-only use, contrast, screen-reader names (WCAG 2.2 AA where a UI exists) |
+| Performance budgets (`performance`) | explicit numbers on named hardware or the CI runner |
+| Platform (`platform`) | each target platform in `project_profile.target_platforms` |
+| Operability (`operability`) | logs, exit codes, `--help`, config errors, upgrade path |
+| Licences and dependencies (`licences_dependencies`) | `INV-01`; new dependencies named in the contract if the milestone needs them |
 
 ## 6. Changing an approved contract
 
@@ -135,13 +150,15 @@ Approved criteria are frozen (`PLAN-03`). If one turns out wrong:
 
 1. The thread that found it stops work on that criterion and reports it with
    evidence (why it is wrong or impossible).
-2. The coordinator drafts version N+1: copy the file, bump `contract.version`,
-   set `status: draft`, record the change in `changes`.
-3. Owner approval and a new D-number, exactly as in step 6. The old version
+2. The coordinator has an acceptance thread draft version N+1: copy the file,
+   bump `contract.version`, set `status: draft`, clear `approval`, record the
+   change in `changes`.
+3. Owner approval, a new D-number and a new hash, exactly as in step 6. The old version
    gets `status: superseded`.
 
 Never edit an approved file in place; a criterion that silently changes after
-review is the failure this whole method exists to prevent.
+review is the failure this whole method exists to prevent, and `approval.hash`
+makes lint catch it.
 
 ## 7. Closing a milestone
 
@@ -156,3 +173,21 @@ The `core_probe` is the one check that proves the goal sentence itself, end to
 end, from a fresh clone (for example: "fresh clone, follow README, import the
 sample file, the report shows 12 rows"). Unit tests can all be green while the
 core probe fails; that is why it is separate.
+
+## 8. Token budget
+
+Contracts cost tokens three times: drafting, reading, verifying. Keep each small.
+
+- **Drafting.** Research stays in the acceptance thread; only the four-line
+  summary reaches the coordinator. Open at most two sources per category and
+  stop a category when a source adds no new `must` candidate. On the `frugal`
+  profile, research only the categories the interview made relevant and skip
+  the rest with a reason.
+- **Reading.** Worker threads read `contract_tool.py brief --ids ...` (id,
+  priority, text, verify step), not the YAML with its sources and history.
+  Nobody reads the tool's source.
+- **Verifying.** Reviewers take a criterion's proof from CI output when CI
+  already ran its verify step, and re-run only what CI did not cover. `/goal`
+  loops stop at `execution_profile.token_economy.goal_turn_cap` turns.
+- **Size.** Aim for 10 to 30 `must` criteria; lint warns above 40. A criterion
+  nobody would notice failing is a `could`.

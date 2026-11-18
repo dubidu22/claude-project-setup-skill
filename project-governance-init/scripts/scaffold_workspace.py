@@ -8,6 +8,7 @@ files by generate_project_rules.py) and renders the templates in
 
     <out-dir>/
       project_instructions.md     starter block for the Coordinator chat
+      dispatcher_instructions.md  starter block for the Dispatcher chat (only with dispatcher: true)
       plans/README.md
       plans/contract-template.yaml  acceptance contract template (PLAN-03)
       tools/contract_tool.py      contract lint and /goal helper, copied as-is
@@ -38,6 +39,7 @@ from typing import Any
 TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "assets" / "templates"
 CONTRACT_TOOL = Path(__file__).resolve().parent / "contract_tool.py"
 CONTRACT_TEMPLATE = Path("plans") / "contract-template.yaml"
+DISPATCHER_TEMPLATE = Path("dispatcher_instructions.md")
 
 LABEL_COLOURS = {
     "lane:core": "B60205",
@@ -138,6 +140,24 @@ def main() -> int:
         return 2
     cfg = load_config(args.from_json)
     cfg.setdefault("workspace_root", str(args.out_dir))
+    cfg["thread_ops_line"] = (
+        "Hand each batch to the Dispatcher thread, which spawns, watches and replaces worker threads; "
+        "read its one report per batch and the ledgers, not worker messages."
+        if cfg.get("dispatcher", False)
+        else "Spawn, fitness-check and replace threads per `threads_and_watchdog`; read ledgers, round "
+        "reports and PR state at hand-offs instead of relaying messages between threads."
+    )
+    cfg["merge_go_line"] = (
+        "grant merge go for critical PRs (the Dispatcher grants it for non-critical ones)"
+        if cfg.get("dispatcher", False)
+        else "grant merge go"
+    )
+    cfg["contract_line"] = (
+        "Before a milestone's first plan, interview the owner, have an acceptance thread draft the "
+        "acceptance contract, read only its `contract_tool.py summary`, and put it to the owner (`PLAN-03`)."
+        if cfg.get("acceptance_contracts", True)
+        else "Keep milestone goals in `project-state.yaml` current."
+    )
     out = args.out_dir.expanduser().resolve()
     out.mkdir(parents=True, exist_ok=True)
 
@@ -147,6 +167,8 @@ def main() -> int:
             continue
         rel = tpl.relative_to(TEMPLATE_DIR)
         if rel == CONTRACT_TEMPLATE and not cfg.get("acceptance_contracts", True):
+            continue
+        if rel == DISPATCHER_TEMPLATE and not cfg.get("dispatcher", False):
             continue
         results.append(write(out / rel, render(tpl.read_text(encoding="utf-8"), cfg), args.force))
     if cfg.get("acceptance_contracts", True):

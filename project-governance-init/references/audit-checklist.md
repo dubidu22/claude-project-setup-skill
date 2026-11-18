@@ -28,8 +28,9 @@ stale silently. Flag and move to `project-state.yaml`:
 
 ## 2. Scope: every rule names who it binds
 
-`applies_to` must be one of `owner | coordinator | implementation | review |
-kb | audit | all`. Also check that the scope is *right*: a rule about merge
+`applies_to` must be one of `owner | coordinator | dispatcher | acceptance |
+implementation | review | kb | audit | all`. A `dispatcher` or `acceptance`
+scope needs a rule in `roles` that defines the role. Also check that the scope is *right*: a rule about merge
 protocol scoped to `implementation` (which never merges) is dead; a rule about
 plan approval scoped to `review` binds the wrong thread.
 
@@ -45,7 +46,8 @@ Check each pair explicitly and quote both rule ids in the finding.
 | Atomic replacement | `threads_and_watchdog` | "replaced immediately", "mid-review", or a KB-thread exception that lets it be replaced mid-PR |
 | Round-4 hard stop | `autonomy`, `pull_requests_and_reviews`, `execution_profile.token_economy.critical_max_review_rounds` | autonomy grant lets the coordinator approve after round 4; `critical_max_review_rounds` is not 4 while rules say round 4; non-critical cap exceeds critical cap |
 | Owner approval | `roles` | something other than the owner's own messages counts as approval; a thread may edit the ruleset |
-| Contract freeze | `plans_and_criticality`, `autonomy` | an autonomy grant (`AUTO-01`) lets the coordinator approve or change a contract that `PLAN-03` reserves for the owner; `PLAN-04` closes milestones without the core probe; `REV-03` missing while `PLAN-04` requires proof in PR bodies |
+| Acceptance-contract freeze | `plans_and_criticality`, `autonomy` | an autonomy grant (`AUTO-01`) lets a thread approve or change an acceptance contract that `PLAN-03` reserves for the owner; `PLAN-05` closes milestones without the core probe; `REV-03` missing while `PLAN-04` requires proof in PR bodies |
+| Dispatcher authority | `roles`, `pull_requests_and_reviews` | the dispatcher may grant merge go for critical PRs, approve plans or decide scope; a rule still tells the coordinator to do what `ROLE-11` gave the dispatcher (two owners for one duty); `ROLE-04` relays fix lists while `THR-04` routes them through round reports |
 | Force-push / branch freeze | `pull_requests_and_reviews`, `CLAUDE.md` | repo docs say "always force-push after rebase" while rules say never |
 | Authority order | header `authority`, `project_instructions` | two sources both claim to win; decision log not above repo `CLAUDE.md` |
 

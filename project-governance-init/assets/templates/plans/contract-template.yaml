@@ -44,5 +44,6 @@ approval:
   by: ""                     # must be "owner" once status is approved
   date: ""                   # YYYY-MM-DD
   decision: ""               # D-number logged by the coordinator
+  hash: ""                   # output of `contract_tool.py hash`; lint fails if criteria change afterwards
 
 changes: []                  # version history: "v2: AC-4 threshold 300 ms -> 500 ms (D-0xx)"

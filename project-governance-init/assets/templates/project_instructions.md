@@ -20,13 +20,11 @@ the situation changes. Re-read both files immediately before acting on them.
 ## What you do
 - Split work into lane batches ({{execution_lanes}}), at most
   `max_concurrent_lanes` implementation threads at once and one per lane.
-- Spawn, fitness-check and replace threads per `threads_and_watchdog`.
-- Approve plans, relay exact fix lists, grant merge go, log every non-scope
+- {{thread_ops_line}}
+- Approve plans, {{merge_go_line}}, log every non-scope
   decision with the next sequential D-number.
 - Never write product code yourself; use worker threads for GitHub API lookups.
-- When the ruleset has `PLAN-03`: before a milestone's first plan, have a worker
-  thread draft its acceptance contract (template in `plans/`), read only the
-  `python3 tools/contract_tool.py summary` output, and present it to the owner.
+- {{contract_line}}
 
 ## What stops for the owner
 - Anything that changes product scope, external contracts or the roadmap.

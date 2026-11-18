@@ -7,7 +7,7 @@ description: >
   Claude project, write or regenerate `claude-project-rules.yaml` / `project-state.yaml`,
   pick a token-economy profile (frugal / balanced / max_velocity), route models to roles,
   define execution lanes and `lane:*` labels, set autonomy limits and owner sign-off gates,
-  draft coordinator project instructions, or scaffold plans/, kb/, ledgers and labels.
+  draft coordinator or dispatcher project instructions, or scaffold plans/, kb/, ledgers and labels.
   Also use it to draft, research, lint or change a milestone's acceptance contract
   (researched, sourced acceptance criteria with verify steps, owner approval, /goal line).
   Also use it to audit, lint, clean up or find contradictions in an existing project
@@ -86,14 +86,17 @@ rule exists to get real decisions, not to block when there is nobody to decide.
 4. **Execution lanes and file ownership**: concurrent lanes versus `lane:*`
    labels, the mapping note, confirmation that `lane:infra` is the lock for
    core and that docs need no lock, and whether a release-branch thread may
-   run alongside the app/release lane.
+   run alongside the app/release lane. Also `dispatcher`: a second, disposable
+   thread for per-PR operations. Recommend it with three or more concurrent
+   lanes or when the owner reports a coordinator that keeps compressing;
+   otherwise leave it off (reference file, section 1).
 5. **Quality gates and invariants**: zero-telemetry / `127.0.0.1` binding,
    banned licences (default AGPL, SSPL, non-commercial, unclear), and the
    project's own hard rules (layer order, determinism, schema compatibility).
    Phrase each invariant as a testable sentence; vague ones are ignored later.
    Also ask whether milestones need an owner-approved acceptance contract
-   (`acceptance_contracts`, recommend yes; it adds `PLAN-03`, `PLAN-04`,
-   `REV-03` and scaffolds the template and `tools/contract_tool.py`).
+   (`acceptance_contracts`, recommend yes; it adds `ROLE-10`, `PLAN-03` to
+   `PLAN-05`, `REV-03` and scaffolds the template and `tools/contract_tool.py`).
 6. **Generate and scaffold** (below).
 
 ### Stage 6: generate, check, scaffold
@@ -123,8 +126,9 @@ rule exists to get real decisions, not to block when there is nobody to decide.
    Existing files are kept unless `--force` is given.
 5. Close with a short summary: where each file is, which values were
    detected versus defaulted, and the two things the owner must do by hand
-   (paste `project_instructions.md` into the coordinator chat; create the
-   labels from `lanes.yml`).
+   (paste `project_instructions.md` into the coordinator chat, and
+   `dispatcher_instructions.md` into the dispatcher chat if there is one;
+   create the labels from `lanes.yml`).
 
 ## Mode B: the audit
 
@@ -148,38 +152,28 @@ rule exists to get real decisions, not to block when there is nobody to decide.
 
 ## Mode C: acceptance contract
 
-Read `references/acceptance-contracts.md` first; it holds the method, the
-criterion rules and the research categories. In short:
+Read `references/acceptance-contracts.md` first: it holds the seven steps, the
+rules for a testable criterion, the research categories and the token budget.
+The shape of the work:
 
-1. **Interview** the owner one question at a time, each with your
-   recommendation: who uses it, what must be better than today, how it is
-   reached, hard constraints, out of scope. Skip what the repo already answers.
-   If nobody can answer in this session, take the fast path: mark those
-   criteria `source.kind: assumption` and list them at the top of your reply.
-2. **Research** best-practice criteria per category. Open the pages you use and
-   record each URL with its retrieval date; no network means saying so, never
-   filling the gap from memory.
-3. **Draft** `plans/contract-<NNN>-<slug>.yaml` from
-   `assets/templates/plans/contract-template.yaml`: binary criteria, a verify
-   step each, a core probe. Keep `status: draft`.
-4. **Pareto cut**: `must` / `should` / `could`; `could` items leave the
-   contract and become issues before approval.
-5. **Lint** until there are no errors:
+1. Interview the owner one question at a time, each with your recommendation
+   (who uses it, what must be better, how it is reached, constraints, out of
+   scope). Nobody to ask: draft anyway and mark guesses `source.kind: assumption`.
+2. Research criteria per category; open the pages you cite and record URL and
+   retrieval date. No network: say so, never fill the gap from memory.
+3. Write `plans/contract-<NNN>-<slug>.yaml` from the template, cut `could`
+   items out as issue candidates, and lint until there are no errors:
    ```bash
    python3 scripts/contract_tool.py lint plans/contract-<NNN>-<slug>.yaml
    ```
-6. **Hand back**, not approve: give the output of `contract_tool.py summary`,
-   the assumptions and the cut items. Only the owner's own message approves
-   (`ROLE-03`); then set `status: approved`, fill `approval` with the D-number,
-   and print the loop line for implementation threads:
-   ```bash
-   python3 scripts/contract_tool.py goal plans/contract-<NNN>-<slug>.yaml --turns 30
-   ```
+4. Hand back the `contract_tool.py summary` output, the assumptions and the cut
+   items. Leave `status: draft`. After the owner's own approval, record the
+   D-number and `contract_tool.py hash` in `approval`; `contract_tool.py goal`
+   then prints the `/goal` line.
 
-Inside a multi-thread project, the drafting runs in a fresh worker thread
-(`PLAN-03`) and the workspace copy `tools/contract_tool.py` is used instead of
-`scripts/`. To change an approved contract, write a new version; never edit it
-in place.
+In a running project the coordinator does step 1 and an acceptance thread does
+steps 2 to 4 (`PLAN-03`, `ROLE-10`), using the workspace copy
+`tools/contract_tool.py`. An approved contract changes only as a new version.
 
 ## Things that are easy to get wrong
 
@@ -190,7 +184,9 @@ in place.
 - Keep personal details (owner name, timezone, clone path) in the config, not
   in rule prose you write by hand; the generator places them where threads
   expect them.
-- A contract you drafted is never approved by you, the coordinator or the
-  review thread. Leave `status: draft` until the owner says so.
+- An acceptance contract you drafted is never approved by you, the
+  coordinator or the review thread. Leave `status: draft` until the owner says so.
+- One duty, one role. With a dispatcher, per-PR operations are the
+  dispatcher's and nothing critical is; do not leave a duty with both.
 - Modifying the ruleset later is itself critical (`META-01`). Mention this
   when handing over, so the owner knows why threads will refuse to edit it.

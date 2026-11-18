@@ -10,7 +10,9 @@ and reviewer judgement.
 
 Usage:
     python3 contract_tool.py lint contract.yaml [--json] [--strict]
-    python3 contract_tool.py summary contract.yaml
+    python3 contract_tool.py summary contract.yaml        # hand-back for the coordinator
+    python3 contract_tool.py brief contract.yaml [--ids AC-3,AC-4]   # compact view for worker threads
+    python3 contract_tool.py hash contract.yaml           # value for approval.hash (freezes the criteria)
     python3 contract_tool.py goal contract.yaml [--ids AC-3,AC-4] [--turns 30] [--allow-draft]
 
 lint exit code: 0 clean or only WARN/INFO, 1 when any ERROR (or WARN with
@@ -25,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import hashlib
 import json
 import re
 import sys
@@ -52,6 +55,7 @@ VAGUE_WORDS = [
 VAGUE_RE = re.compile(r"\b(" + "|".join(re.escape(w) for w in VAGUE_WORDS) + r")\b", re.IGNORECASE)
 PLACEHOLDER_RE = re.compile(r"<[^<>]{2,}>")
 ID_RE = re.compile(r"^AC-\d+$")
+CONTRACT_ID_RE = re.compile(r"^C-\d+$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 DECISION_RE = re.compile(r"^D-\d+$")
 LONG_CRITERION = 220
@@ -100,6 +104,17 @@ def is_placeholder(v: Any) -> bool:
     return not t or bool(PLACEHOLDER_RE.search(t))
 
 
+def contract_hash(data: dict[str, Any]) -> str:
+    """Hash of what approval freezes: goal, core probe and each criterion's id, text, priority, verify."""
+    crit = []
+    for c in data.get("criteria") or []:
+        if isinstance(c, dict):
+            v = c.get("verify") if isinstance(c.get("verify"), dict) else {}
+            crit.append([s(c.get("id")), s(c.get("text")), s(c.get("priority")).lower(), s(v.get("type")).lower(), s(v.get("how"))])
+    payload = json.dumps([s(data.get("goal")), s(data.get("core_probe")), crit], ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
+
+
 # ----------------------------------------------------------------------------
 # Lint
 # ----------------------------------------------------------------------------
@@ -116,6 +131,10 @@ def lint(data: dict[str, Any]) -> list[Finding]:
     for key in ("id", "title"):
         if is_placeholder(meta.get(key)):
             add("C001", "ERROR", f"contract.{key} is missing or still a placeholder", "contract")
+    if not is_placeholder(meta.get("id")) and not CONTRACT_ID_RE.match(s(meta.get("id"))):
+        add("C001", "ERROR", f"contract.id '{s(meta.get('id'))}' must look like C-<number>", "contract")
+    if is_placeholder(meta.get("milestone")):
+        add("C031", "WARN", "contract.milestone is not filled in; a contract belongs to one milestone", "contract")
     version = meta.get("version")
     if not isinstance(version, int) or version < 1:
         add("C001", "ERROR", "contract.version must be an integer >= 1", "contract")
@@ -132,6 +151,10 @@ def lint(data: dict[str, Any]) -> list[Finding]:
         if is_placeholder(data.get(key)):
             add("C004", "WARN", f"{key} is not filled in; it decides login, privacy and platform criteria", key)
 
+    scope_out = data.get("out_of_scope")
+    if not isinstance(scope_out, list) or not scope_out or all(is_placeholder(x) for x in scope_out):
+        add("C030", "WARN", "out_of_scope is empty; name what this milestone deliberately leaves out", "out_of_scope")
+
     criteria = data.get("criteria")
     if not isinstance(criteria, list) or not criteria:
         add("C005", "ERROR", "criteria must be a non-empty list", "criteria")
@@ -143,6 +166,7 @@ def lint(data: dict[str, Any]) -> list[Finding]:
     research_sources = 0
     assumptions: list[str] = []
     could_ids: list[str] = []
+    cats_used: set[str] = set()
     today = datetime.date.today()
 
     for i, c in enumerate(criteria):
@@ -166,6 +190,8 @@ def lint(data: dict[str, Any]) -> list[Finding]:
                 add("C017", "WARN", f"'{m.group(0)}' is not testable without a number or concrete condition: \"{text}\"", where)
             if len(text) > LONG_CRITERION:
                 add("C018", "WARN", f"{len(text)} characters; probably more than one check, split it", where)
+            elif re.search(r"[.;]\s+\S", text):
+                add("C018", "WARN", "more than one sentence; one criterion is one check, split it", where)
 
         prio = s(c.get("priority")).lower()
         if prio not in PRIORITIES:
@@ -176,8 +202,12 @@ def lint(data: dict[str, Any]) -> list[Finding]:
                 could_ids.append(cid)
 
         cat = s(c.get("category"))
-        if cat and cat not in CATEGORIES:
+        if not cat:
+            add("C019", "WARN", "category is missing; it shows which kinds of behaviour the contract covers", where)
+        elif cat not in CATEGORIES:
             add("C019", "INFO", f"category '{cat}' is not one of the standard categories", where)
+        else:
+            cats_used.add(cat)
 
         verify = c.get("verify")
         if not isinstance(verify, dict):
@@ -227,6 +257,12 @@ def lint(data: dict[str, Any]) -> list[Finding]:
     if research_sources == 0 and is_placeholder((data.get("research") or {}).get("notes") if isinstance(data.get("research"), dict) else None):
         add("C026", "WARN", "no researched criteria and no research.notes saying why; run step 2 or record the reason", "research")
 
+    research = data.get("research") if isinstance(data.get("research"), dict) else {}
+    skipped = {s(x).split(":", 1)[0].strip() for x in (research.get("categories_skipped") or [])}
+    uncovered = sorted(CATEGORIES - cats_used - skipped)
+    if uncovered:
+        add("C029", "WARN", f"no criterion and no skip reason for: {', '.join(uncovered)}; add criteria or list each under research.categories_skipped as 'name: reason'", "research")
+
     if status == "approved":
         approval = data.get("approval") or {}
         if not isinstance(approval, dict):
@@ -237,6 +273,11 @@ def lint(data: dict[str, Any]) -> list[Finding]:
             add("C023", "ERROR", "status is approved but approval.date is not YYYY-MM-DD", "approval")
         if not DECISION_RE.match(s(approval.get("decision"))):
             add("C023", "ERROR", "status is approved but approval.decision has no D-number", "approval")
+        stored = s(approval.get("hash"))
+        if not stored:
+            add("C027", "ERROR", "status is approved but approval.hash is empty; record the output of `contract_tool.py hash`", "approval")
+        elif stored != contract_hash(data):
+            add("C027", "ERROR", f"approved criteria were edited in place (approval.hash {stored}, content {contract_hash(data)}); frozen criteria change only by a new version", "approval")
         if could_ids:
             add("C022", "ERROR", f"approved contract still holds could items {', '.join(could_ids)}; they belong in GitHub issues", "criteria")
         if assumptions:
@@ -284,6 +325,20 @@ def summary(path: Path, data: dict[str, Any]) -> str:
     ]) + "\n"
 
 
+def brief(data: dict[str, Any], ids: list[str] | None) -> str:
+    """Compact view for implementation and review threads: no sources, categories or history."""
+    meta = data.get("contract") or {}
+    out = [f"{s(meta.get('id'))} v{s(meta.get('version'))} ({s(meta.get('status'))}) goal: {s(data.get('goal'))}"]
+    for c in data.get("criteria") or []:
+        if not isinstance(c, dict) or (ids and s(c.get("id")) not in ids):
+            continue
+        v = c.get("verify") if isinstance(c.get("verify"), dict) else {}
+        out.append(f"{s(c.get('id'))} [{s(c.get('priority'))}] {s(c.get('text'))} | {s(v.get('type'))}: {s(v.get('how'))}")
+    if not ids:
+        out.append(f"core probe: {s(data.get('core_probe'))}")
+    return "\n".join(out) + "\n"
+
+
 def goal_line(path: Path, data: dict[str, Any], ids: list[str] | None, turns: int) -> str:
     crit = [c for c in data.get("criteria") or [] if isinstance(c, dict)]
     known = {s(c.get("id")) for c in crit}
@@ -315,6 +370,11 @@ def main() -> int:
     p_lint.add_argument("--strict", action="store_true", help="exit 1 on WARN too")
     p_sum = sub.add_parser("summary", help="three-line hand-back for the coordinator")
     p_sum.add_argument("contract", type=Path)
+    p_brief = sub.add_parser("brief", help="compact criteria view for worker threads")
+    p_brief.add_argument("contract", type=Path)
+    p_brief.add_argument("--ids", help="comma-separated criterion ids (default: all)")
+    p_hash = sub.add_parser("hash", help="print the value for approval.hash")
+    p_hash.add_argument("contract", type=Path)
     p_goal = sub.add_parser("goal", help="print a /goal line for Claude Code")
     p_goal.add_argument("contract", type=Path)
     p_goal.add_argument("--ids", help="comma-separated criterion ids (default: all must criteria + core probe)")
@@ -330,6 +390,12 @@ def main() -> int:
 
     if args.cmd == "summary":
         print(summary(args.contract, data), end="")
+        return 0
+    if args.cmd == "brief":
+        print(brief(data, [i.strip() for i in args.ids.split(",")] if args.ids else None), end="")
+        return 0
+    if args.cmd == "hash":
+        print(contract_hash(data))
         return 0
 
     findings = lint(data)
