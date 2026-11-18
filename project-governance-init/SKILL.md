@@ -8,6 +8,8 @@ description: >
   pick a token-economy profile (frugal / balanced / max_velocity), route models to roles,
   define execution lanes and `lane:*` labels, set autonomy limits and owner sign-off gates,
   draft coordinator project instructions, or scaffold plans/, kb/, ledgers and labels.
+  Also use it to draft, research, lint or change a milestone's acceptance contract
+  (researched, sourced acceptance criteria with verify steps, owner approval, /goal line).
   Also use it to audit, lint, clean up or find contradictions in an existing project
   ruleset, rules YAML or CLAUDE.md governance section, or when threads waste tokens on
   stale rules. Trigger even for short asks like "set up the coordinator", "new project
@@ -32,6 +34,8 @@ separate); read it when you need to explain a trade-off or justify a default.
 - **Mode B, audit**: there is already a `claude-project-rules.yaml` (or rules
   living in `CLAUDE.md` / project instructions) and the user wants it checked
   for contradictions, stale state or token bloat.
+- **Mode C, acceptance contract**: a milestone or feature needs its definition
+  of done: interview, researched criteria, owner approval, frozen contract.
 - **Regenerate**: a `governance-config.json` exists and the user wants a
   setting changed. Edit the JSON, re-run the generator, and run the audit
   script on the result. No walkthrough needed.
@@ -87,6 +91,9 @@ rule exists to get real decisions, not to block when there is nobody to decide.
    banned licences (default AGPL, SSPL, non-commercial, unclear), and the
    project's own hard rules (layer order, determinism, schema compatibility).
    Phrase each invariant as a testable sentence; vague ones are ignored later.
+   Also ask whether milestones need an owner-approved acceptance contract
+   (`acceptance_contracts`, recommend yes; it adds `PLAN-03`, `PLAN-04`,
+   `REV-03` and scaffolds the template and `tools/contract_tool.py`).
 6. **Generate and scaffold** (below).
 
 ### Stage 6: generate, check, scaffold
@@ -139,6 +146,41 @@ rule exists to get real decisions, not to block when there is nobody to decide.
 4. If `governance-config.json` is present, offer to fix by editing the config
    and regenerating rather than hand-editing YAML.
 
+## Mode C: acceptance contract
+
+Read `references/acceptance-contracts.md` first; it holds the method, the
+criterion rules and the research categories. In short:
+
+1. **Interview** the owner one question at a time, each with your
+   recommendation: who uses it, what must be better than today, how it is
+   reached, hard constraints, out of scope. Skip what the repo already answers.
+   If nobody can answer in this session, take the fast path: mark those
+   criteria `source.kind: assumption` and list them at the top of your reply.
+2. **Research** best-practice criteria per category. Open the pages you use and
+   record each URL with its retrieval date; no network means saying so, never
+   filling the gap from memory.
+3. **Draft** `plans/contract-<NNN>-<slug>.yaml` from
+   `assets/templates/plans/contract-template.yaml`: binary criteria, a verify
+   step each, a core probe. Keep `status: draft`.
+4. **Pareto cut**: `must` / `should` / `could`; `could` items leave the
+   contract and become issues before approval.
+5. **Lint** until there are no errors:
+   ```bash
+   python3 scripts/contract_tool.py lint plans/contract-<NNN>-<slug>.yaml
+   ```
+6. **Hand back**, not approve: give the output of `contract_tool.py summary`,
+   the assumptions and the cut items. Only the owner's own message approves
+   (`ROLE-03`); then set `status: approved`, fill `approval` with the D-number,
+   and print the loop line for implementation threads:
+   ```bash
+   python3 scripts/contract_tool.py goal plans/contract-<NNN>-<slug>.yaml --turns 30
+   ```
+
+Inside a multi-thread project, the drafting runs in a fresh worker thread
+(`PLAN-03`) and the workspace copy `tools/contract_tool.py` is used instead of
+`scripts/`. To change an approved contract, write a new version; never edit it
+in place.
+
 ## Things that are easy to get wrong
 
 - Lanes are concurrency slots; labels are file ownership. Do not generate one
@@ -148,5 +190,7 @@ rule exists to get real decisions, not to block when there is nobody to decide.
 - Keep personal details (owner name, timezone, clone path) in the config, not
   in rule prose you write by hand; the generator places them where threads
   expect them.
+- A contract you drafted is never approved by you, the coordinator or the
+  review thread. Leave `status: draft` until the owner says so.
 - Modifying the ruleset later is itself critical (`META-01`). Mention this
   when handing over, so the owner knows why threads will refuse to edit it.

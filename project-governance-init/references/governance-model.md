@@ -12,6 +12,7 @@ It describes the system the generator encodes, not the generator itself.
 5. Model routing versus token economy (why they are decoupled)
 6. The five architectural invariants ("D-703")
 7. What the generated files contain (rule catalog)
+8. Acceptance contracts
 
 ---
 
@@ -158,8 +159,8 @@ D-001. The invariants are the things that, when violated, caused real damage:
 | `autonomy` | AUTO-01..03 | horizon, what waits for the owner, working ahead |
 | `lanes` | LANE-01..04 | batching, concurrency cap, ownership + infra lock, release-branch exception |
 | `threads_and_watchdog` | THR-01..04 | onboarding + fitness check, atomic replacement, watchdog, where plans/reports go |
-| `plans_and_criticality` | PLAN-01..02, CRIT-01..02 | plan-before-code, what is critical, what critical requires |
-| `pull_requests_and_reviews` | PR-01..03, REV-01..02, MRG-01 | title format, CI-before-review, branch freeze, round caps, report format, merge protocol |
+| `plans_and_criticality` | PLAN-01..04, CRIT-01..02 | plan-before-code, acceptance contracts (PLAN-03/04, when `acceptance_contracts` is on), what is critical, what critical requires |
+| `pull_requests_and_reviews` | PR-01..03, REV-01..03, MRG-01 | title format, CI-before-review, branch freeze, round caps, report format, criterion proof (REV-03), merge protocol |
 | `testing_and_ci` | TST-01..02, CI-01 | tests first, never weaken tests, fast vs full matrix |
 | `github_kb_and_release` | GH-01, KB-01, REL-01 | issues same day, decision logging, release branching |
 | `hard_invariants_and_owner_prefs` | INV-01.., PREF-01 | licence gate, layer boundaries, telemetry ban, custom invariants, owner formatting prefs |
@@ -172,3 +173,19 @@ active milestones, owner autonomy message ids), `notifications_pending`, and a
 `governance-config.json` is the normalized input; re-running the generator on
 it reproduces both YAML files byte-for-byte (except `date`), which is how an
 audit can diff "what the generator would emit" against "what is there now".
+
+## 8. Acceptance contracts
+
+A plan says how a thread will build something; a contract says when the
+milestone is done, in terms the owner approved before any code exists. With
+`acceptance_contracts` on (the default), `PLAN-03` requires an owner-approved
+contract per milestone, `PLAN-04` ties plans and PRs to its criterion ids, and
+`REV-03` makes reviewers re-run the claimed checks, reading the diff and the
+contract before the author's framing.
+
+Research and drafting run in a fresh worker thread so that search results never
+enter the coordinator's context; the coordinator reads only the three-line
+`contract_tool.py summary`. Criteria are binary, each has a verify step, and
+every researched one names its URL and retrieval date. The full method, the
+criterion-writing rules and the research categories are in
+`references/acceptance-contracts.md`.

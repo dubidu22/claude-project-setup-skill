@@ -1,0 +1,12 @@
+schema_version: "1.1"
+name: contract-draft-fast-path
+expected_outcome: |
+  Without stalling on interview questions, the assistant researches budget-alert and CLI error
+  behaviour on the web, opens the pages it uses, and writes plans/contract-001-budget-alerts.yaml
+  from the contract template. The contract lints with zero errors, stays in status draft with an
+  empty approval, has a goal sentence and an end-to-end core probe, covers input validation and
+  error states (for example a malformed budget value or a missing config file) besides the happy
+  path, cites each researched criterion with an https URL and a retrieval date, marks its own
+  assumptions as source kind assumption, and contains no could items. The final message gives the
+  contract summary (criteria counts, assumptions to confirm, sources) and names the items cut as
+  issue candidates.

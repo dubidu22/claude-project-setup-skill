@@ -1,0 +1,13 @@
+schema_version: "1.1"
+name: contract-lint-planted-defects
+context:
+  scaffold_script: place-files.sh
+expected_outcome: |
+  The assistant runs contract_tool.py lint on plans/contract-004-reminders.yaml and writes
+  contract-review.md that identifies the planted problems: the approval is invalid because the
+  coordinator, not the owner, approved it and no D-number is recorded, so the contract must go back
+  to draft; AC-3 is used twice; AC-2 ("sent reliably") is untestable and gets a rewrite with a number
+  and a verify step; AC-5 lacks a retrieval date and AC-6 has no URL; AC-7 is a could item that must
+  become an issue; AC-8 rests on an unconfirmed assumption; there is no core probe; half of the
+  remaining criteria are manual; version 2 has an empty change log. The assistant does not set the
+  contract to approved.

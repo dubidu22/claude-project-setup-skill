@@ -24,10 +24,14 @@ the situation changes. Re-read both files immediately before acting on them.
 - Approve plans, relay exact fix lists, grant merge go, log every non-scope
   decision with the next sequential D-number.
 - Never write product code yourself; use worker threads for GitHub API lookups.
+- When the ruleset has `PLAN-03`: before a milestone's first plan, have a worker
+  thread draft its acceptance contract (template in `plans/`), read only the
+  `python3 tools/contract_tool.py summary` output, and present it to the owner.
 
 ## What stops for the owner
 - Anything that changes product scope, external contracts or the roadmap.
 - A critical PR that reaches review round 4 (hard stop, owner sign-off).
+- Approving or changing an acceptance contract (`PLAN-03`).
 - The owner's hand steps listed in `ROLE-02`.
 - The notification triggers in `project-state.yaml` → post in chat and wait.
 

@@ -18,7 +18,7 @@ stack_key, fast_checks, target_platforms, coordinator_model, critical_worker_mod
 standard_worker_model, profile_key, token_cfg{...}, autonomy_horizon, round4_hard_stop,
 owner_hand_steps, notify_triggers, execution_lanes, ownership_labels, lane_mapping_note,
 allow_parallel_release_branch, no_telemetry, banned_licences, custom_invariants,
-active_milestones, today.
+acceptance_contracts, active_milestones, today.
 
 `workspace_root` is where shared files (plans/, project-state.yaml) live: the
 claude.ai Project mount `/mnt/project-files` or a folder inside a repo checkout.
@@ -210,6 +210,7 @@ def default_config(project_name: str = "my-project") -> dict[str, Any]:
         "no_telemetry": True,
         "banned_licences": ["AGPL", "SSPL", "non-commercial", "unclear"],
         "custom_invariants": [],
+        "acceptance_contracts": True,
         "active_milestones": ["v0.1"],
     }
 
@@ -384,6 +385,11 @@ def run_wizard() -> dict[str, Any]:
             break
         custom_invariants.append(inv)
 
+    acceptance_contracts = ask_bool(
+        "Require an owner-approved acceptance contract (researched, sourced criteria) per milestone?",
+        True,
+    )
+
     return {
         "today": today,
         "project_name": project_name,
@@ -414,6 +420,7 @@ def run_wizard() -> dict[str, Any]:
         "no_telemetry": no_telemetry,
         "banned_licences": banned_licences,
         "custom_invariants": custom_invariants,
+        "acceptance_contracts": acceptance_contracts,
         "active_milestones": ["v0.1"],
     }
 
@@ -426,6 +433,23 @@ def render_rules_yaml(cfg: dict[str, Any]) -> str:
     banned_lic_str = ", ".join(cfg["banned_licences"])
     hand_steps_str = "; ".join(cfg["owner_hand_steps"])
     ws = cfg["workspace_root"]
+
+    contract_plan_rules: list[str] = []
+    contract_review_rules: list[str] = []
+    if cfg.get("acceptance_contracts", True):
+        contract_plan_rules = [
+            "  - id: PLAN-03",
+            "    applies_to: coordinator",
+            f"    rule: {yaml_quote('Before a milestone' + chr(39) + 's first plan, a worker thread drafts an acceptance contract in ' + ws + '/plans/contract-<NNN>-<slug>.yaml (sourced criteria, a verify step each, a core probe) and lints it with ' + ws + '/tools/contract_tool.py. It binds only after the owner' + chr(39) + 's own approval with a D-number; approved criteria are frozen, and a change is a new version with a new D-number.')}",
+            "  - id: PLAN-04",
+            "    applies_to: implementation",
+            '    rule: "Plans cite the contract criterion ids they cover; PR bodies list each covered criterion with the command run and its result. A milestone closes only when every must criterion and the core probe pass; should criteria pass or have a deferred issue."',
+        ]
+        contract_review_rules = [
+            "  - id: REV-03",
+            "    applies_to: review",
+            '    rule: "Read the diff and the contract before the plan and PR description, then re-run the verify step of every criterion the PR claims. A claimed criterion without passing proof is a must-fix finding."',
+        ]
 
     lines: list[str] = [
         f"# {cfg['project_name']}: reusable project rules for multi-thread Claude execution",
@@ -582,6 +606,7 @@ def render_rules_yaml(cfg: dict[str, Any]) -> str:
         "  - id: PLAN-02",
         "    applies_to: coordinator",
         '    rule: "Critical work always waits for explicit coordinator plan approval; non-critical work may proceed immediately when confidence is high."',
+        *contract_plan_rules,
         "  - id: CRIT-01",
         "    applies_to: all",
         '    rule: "A change is critical if it touches layer contracts, core data structures, KB process/architecture docs (excluding daily decision-log batch PRs), golden/regression files, packaging/release/CI, safety mechanisms, licences, user-file deletion paths, network calls, or carries risk:high."',
@@ -605,6 +630,7 @@ def render_rules_yaml(cfg: dict[str, Any]) -> str:
         "  - id: REV-02",
         "    applies_to: review",
         f"    rule: {yaml_quote('Round reports go to ' + ws + '/plans/review-pr<N>-round<K>.md with head SHA, verdict, verified checks, and numbered findings (B/M must-fix, S should-fix, N note). Every finding must be answered as fixed (with test proof), deferred (with issue link), or declined (with reason).')}",
+        *contract_review_rules,
         "  - id: MRG-01",
         "    applies_to: review",
         '    rule: "Squash-merge only on explicit coordinator go, pinned to the reviewed head SHA, with required CI green (and all target_platforms green for critical PRs). If behind main, update via merge commit (never force-push), re-verify diff and CI, and merge on the new SHA."',

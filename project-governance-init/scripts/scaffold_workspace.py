@@ -9,6 +9,8 @@ files by generate_project_rules.py) and renders the templates in
     <out-dir>/
       project_instructions.md     starter block for the Coordinator chat
       plans/README.md
+      plans/contract-template.yaml  acceptance contract template (PLAN-03)
+      tools/contract_tool.py      contract lint and /goal helper, copied as-is
       kb/README.md
       kb/decision-log.md          with D-001 recording adoption of the ruleset
       ledger/implementation.md
@@ -34,6 +36,8 @@ from pathlib import Path
 from typing import Any
 
 TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "assets" / "templates"
+CONTRACT_TOOL = Path(__file__).resolve().parent / "contract_tool.py"
+CONTRACT_TEMPLATE = Path("plans") / "contract-template.yaml"
 
 LABEL_COLOURS = {
     "lane:core": "B60205",
@@ -142,7 +146,11 @@ def main() -> int:
         if not tpl.is_file():
             continue
         rel = tpl.relative_to(TEMPLATE_DIR)
+        if rel == CONTRACT_TEMPLATE and not cfg.get("acceptance_contracts", True):
+            continue
         results.append(write(out / rel, render(tpl.read_text(encoding="utf-8"), cfg), args.force))
+    if cfg.get("acceptance_contracts", True):
+        results.append(write(out / "tools" / "contract_tool.py", CONTRACT_TOOL.read_text(encoding="utf-8"), args.force))
     if args.github:
         results.append(write(out / ".github" / "lanes.yml", lanes_yml(cfg), args.force))
 

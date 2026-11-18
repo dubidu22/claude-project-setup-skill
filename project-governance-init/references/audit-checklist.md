@@ -45,6 +45,7 @@ Check each pair explicitly and quote both rule ids in the finding.
 | Atomic replacement | `threads_and_watchdog` | "replaced immediately", "mid-review", or a KB-thread exception that lets it be replaced mid-PR |
 | Round-4 hard stop | `autonomy`, `pull_requests_and_reviews`, `execution_profile.token_economy.critical_max_review_rounds` | autonomy grant lets the coordinator approve after round 4; `critical_max_review_rounds` is not 4 while rules say round 4; non-critical cap exceeds critical cap |
 | Owner approval | `roles` | something other than the owner's own messages counts as approval; a thread may edit the ruleset |
+| Contract freeze | `plans_and_criticality`, `autonomy` | an autonomy grant (`AUTO-01`) lets the coordinator approve or change a contract that `PLAN-03` reserves for the owner; `PLAN-04` closes milestones without the core probe; `REV-03` missing while `PLAN-04` requires proof in PR bodies |
 | Force-push / branch freeze | `pull_requests_and_reviews`, `CLAUDE.md` | repo docs say "always force-push after rebase" while rules say never |
 | Authority order | header `authority`, `project_instructions` | two sources both claim to win; decision log not above repo `CLAUDE.md` |
 
