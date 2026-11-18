@@ -214,7 +214,7 @@ def default_config(project_name: str = "my-project") -> dict[str, Any]:
         "banned_licences": ["AGPL", "SSPL", "non-commercial", "unclear"],
         "custom_invariants": [],
         "acceptance_contracts": True,
-        "dispatcher": False,
+        "dispatcher": True,
         "active_milestones": ["v0.1"],
     }
 
@@ -370,8 +370,8 @@ def run_wizard() -> dict[str, Any]:
         True,
     )
     dispatcher = ask_bool(
-        "Add a dispatcher thread for per-PR operations (recommended with 3+ lanes or a coordinator that compresses more than once per batch)?",
-        False,
+        "Add a dispatcher thread for per-PR operations (recommended: it is what keeps the long-lived coordinator from compressing)?",
+        True,
     )
 
     header(
@@ -444,7 +444,7 @@ def render_rules_yaml(cfg: dict[str, Any]) -> str:
     ws = cfg["workspace_root"]
 
     q = chr(39)
-    disp = bool(cfg.get("dispatcher", False))
+    disp = bool(cfg.get("dispatcher", True))
     ops = "dispatcher" if disp else "coordinator"
     merge_go = (
         "an explicit go (dispatcher for non-critical PRs, coordinator for critical ones)"
@@ -649,7 +649,7 @@ def render_rules_yaml(cfg: dict[str, Any]) -> str:
         '    rule: "Every new thread reads the latest KB, plans, and decision log before acting. Before receiving a second batch, a thread must pass a fitness check (reporting compression count, current plan, and open items from memory)."',
         "  - id: THR-02",
         "    applies_to: all",
-        '    rule: "Any thread (including the KB thread) reaching execution_profile.token_economy.replace_at_compressions finishes its current atomic step (review round, fix commit, or KB PR) and is replaced at the next hand-off, never mid-step."',
+        '    rule: "Any worker thread (including the KB thread) reaching execution_profile.token_economy.replace_at_compressions finishes its current atomic step (review round, fix commit, or KB PR) and is replaced at the next hand-off, never mid-step. The coordinator is never replaced."',
         "  - id: THR-03",
         f"    applies_to: {ops}",
         f"    rule: {yaml_quote('Whenever a thread owes output, the ' + ops + ' checks its last commit or file change after watchdog_interval_minutes and nudges only when nothing moved. After watchdog_max_nudges without progress, the ' + ops + ' replaces the stalled thread or escalates to the ' + ('coordinator' if disp else 'owner') + '.')}",
@@ -657,6 +657,9 @@ def render_rules_yaml(cfg: dict[str, Any]) -> str:
         "    applies_to: all",
         f"    rule: {yaml_quote('Threads write plans and round reports under ' + ws + '/plans/ and post one line per hand-off in chat (what was written, where). Fix lists travel through round reports, not through the coordinator. Re-read shared files immediately before writing to avoid sync lag.')}",
         *dispatcher_thread_rules,
+        "  - id: THR-06",
+        "    applies_to: coordinator",
+        f"    rule: {yaml_quote('The coordinator lives for the whole project and keeps its context small enough not to compress: it reads summaries, ledgers and state files, never diffs, logs, research or whole contracts, and hands lookups to worker threads. It writes what it knows to ' + ws + '/project-state.yaml and the decision log at each hand-off, and re-reads them and the rules after any compression.')}",
         "",
         "plans_and_criticality:",
         "  - id: PLAN-01",

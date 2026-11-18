@@ -160,13 +160,13 @@ def main() -> int:
     cfg["thread_ops_line"] = (
         "Hand each batch to the Dispatcher thread, which spawns, watches and replaces worker threads; "
         "read its one report per batch and the ledgers, not worker messages."
-        if cfg.get("dispatcher", False)
+        if cfg.get("dispatcher", True)
         else "Spawn, fitness-check and replace threads per `threads_and_watchdog`; read ledgers, round "
         "reports and PR state at hand-offs instead of relaying messages between threads."
     )
     cfg["merge_go_line"] = (
         "grant merge go for critical PRs (the Dispatcher grants it for non-critical ones)"
-        if cfg.get("dispatcher", False)
+        if cfg.get("dispatcher", True)
         else "grant merge go"
     )
     cfg["contract_line"] = (
@@ -187,7 +187,7 @@ def main() -> int:
         rel = tpl.relative_to(TEMPLATE_DIR)
         if rel == CONTRACT_TEMPLATE and not cfg.get("acceptance_contracts", True):
             continue
-        if rel == DISPATCHER_TEMPLATE and not cfg.get("dispatcher", False):
+        if rel == DISPATCHER_TEMPLATE and not cfg.get("dispatcher", True):
             continue
         results.append(write(out / rel, render(tpl.read_text(encoding="utf-8"), cfg), args.force))
     if cfg.get("acceptance_contracts", True):

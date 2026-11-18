@@ -58,9 +58,10 @@ rule exists to get real decisions, not to block when there is nobody to decide.
    labels, the mapping note, confirmation that `lane:infra` is the lock for
    core and that docs need no lock, and whether a release-branch thread may
    run alongside the app/release lane. Also `dispatcher`: a second, disposable
-   thread for per-PR operations. Recommend it with three or more concurrent
-   lanes or when the owner reports a coordinator that keeps compressing;
-   otherwise leave it off (reference file, section 1).
+   thread for per-PR operations. Recommend on: the coordinator lives for the
+   whole project and should never compress, and the dispatcher is what keeps
+   per-PR traffic out of it. Off only for a small project with one or two
+   lanes (reference file, section 1).
 5. **Quality gates and invariants**: zero-telemetry / `127.0.0.1` binding,
    banned licences (default AGPL, SSPL, non-commercial, unclear), and the
    project's own hard rules (layer order, determinism, schema compatibility).

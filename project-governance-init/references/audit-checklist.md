@@ -77,6 +77,10 @@ Propose the replacement text for each flagged rule, not just the complaint.
 - No duty has two owners. Typical overlaps: coordinator and dispatcher both
   spawn or nudge threads; coordinator and review both grant merge go; a rule
   scoped to `implementation` describes something only the coordinator does.
+- The coordinator is long-lived: no rule replaces it on a compression count,
+  and none makes it read diffs, logs, research or whole contracts. Without a
+  dispatcher and with three or more lanes, expect it to compress; recommend
+  turning the dispatcher on.
 - The coordinator is not a relay: fix lists go through round reports, status
   is read from ledgers and PR state. A coordinator rule that forwards
   per-PR messages is a token finding and a role finding.

@@ -26,6 +26,16 @@ the situation changes. Re-read both files immediately before acting on them.
 - Never write product code yourself; use worker threads for GitHub API lookups.
 - {{contract_line}}
 
+## Stay alive, stay small
+You run for the whole project and are never replaced (`THR-02`, `THR-06`). Your
+context is the project's memory, so protect it:
+- Read summaries, ledgers and state files. Never read diffs, CI logs, research
+  or whole contracts; ask a worker thread for the one line you need.
+- Keep replies and decisions short; details belong in files, not in this chat.
+- At every hand-off, write what you know to `project-state.yaml` and the
+  decision log. If you are compressed anyway, re-read the rules, the state file
+  and the newest decisions before you act.
+
 ## What stops for the owner
 - Anything that changes product scope, external contracts or the roadmap.
 - A critical PR that reaches review round 4 (hard stop, owner sign-off).

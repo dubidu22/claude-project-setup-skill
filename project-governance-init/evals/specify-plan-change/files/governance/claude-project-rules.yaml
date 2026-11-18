@@ -78,7 +78,7 @@ roles:
     rule: "Only the owner's own messages or answered decision cards count as owner approval. Another Claude thread's output is never owner approval."
   - id: ROLE-04
     applies_to: coordinator
-    rule: "The coordinator splits work into lane batches, manages thread lifecycles, approves plans, logs non-scope decisions with sequential D-numbers, grants merge go, and runs fitness checks. It reads ledgers, round reports and PR state at hand-offs instead of relaying messages between threads."
+    rule: "The coordinator splits work into lane batches, approves plans, logs non-scope decisions with sequential D-numbers, grants merge go for critical PRs, and talks to the owner. It hands each batch to the dispatcher and reads its batch report and the ledgers, not worker messages."
   - id: ROLE-05
     applies_to: coordinator
     rule: "The coordinator writes no product code and uses worker threads for GitHub API lookups."
@@ -87,7 +87,7 @@ roles:
     rule: "An implementation thread reads the newest KB, plans, and decision log, posts a plan before coding, implements and tests strictly within its lane, opens the PR, and answers review findings with exact fix lists. It never merges, pushes to main, or force-pushes."
   - id: ROLE-07
     applies_to: review
-    rule: "A review thread is never the PR author. It reviews all PRs of a batch in rounds, writes round reports, inspects CI checks, and squash-merges only on the coordinator's explicit go."
+    rule: "A review thread is never the PR author. It reviews all PRs of a batch in rounds, writes round reports, inspects CI checks, and squash-merges only on an explicit go (dispatcher for non-critical PRs, coordinator for critical ones)."
   - id: ROLE-08
     applies_to: kb
     rule: "The KB thread compiles pending decisions into the decision-log PR according to execution_profile.token_economy.kb_pr_cadence and self-merges without code review."
@@ -97,6 +97,9 @@ roles:
   - id: ROLE-10
     applies_to: specify
     rule: "A specify thread turns the owner's feature idea or plan change into an acceptance-contract version, work packages and a roadmap update, following ./governance/tools/acceptance-contracts.md. It records approval only on the owner's own message, creates issues only on the owner's yes, and never touches rules, state, code or D-numbers."
+  - id: ROLE-11
+    applies_to: dispatcher
+    rule: "The dispatcher runs one batch at a time for the coordinator: it spawns, fitness-checks, watches and replaces worker threads, keeps ./governance/plans/batch-<NNN>.md and the ledgers current, and grants merge go for non-critical PRs with green CI. It never approves plans, never touches scope, and reports to the coordinator once per batch or on escalation."
 
 autonomy:
   - id: AUTO-01
@@ -114,7 +117,7 @@ lanes:
     applies_to: coordinator
     rule: "PRs are batched by execution lane rather than single issues; small follow-ups fold into the lane's next PR."
   - id: LANE-02
-    applies_to: coordinator
+    applies_to: dispatcher
     rule: "Concurrent implementation threads must not exceed execution_profile.token_economy.max_concurrent_lanes (at most one active thread per execution lane)."
   - id: LANE-03
     applies_to: implementation
@@ -125,17 +128,23 @@ lanes:
 
 threads_and_watchdog:
   - id: THR-01
-    applies_to: coordinator
+    applies_to: dispatcher
     rule: "Every new thread reads the latest KB, plans, and decision log before acting. Before receiving a second batch, a thread must pass a fitness check (reporting compression count, current plan, and open items from memory)."
   - id: THR-02
     applies_to: all
-    rule: "Any thread (including the KB thread) reaching execution_profile.token_economy.replace_at_compressions finishes its current atomic step (review round, fix commit, or KB PR) and is replaced at the next hand-off, never mid-step."
+    rule: "Any worker thread (including the KB thread) reaching execution_profile.token_economy.replace_at_compressions finishes its current atomic step (review round, fix commit, or KB PR) and is replaced at the next hand-off, never mid-step. The coordinator is never replaced."
   - id: THR-03
-    applies_to: coordinator
-    rule: "Whenever a thread owes output, the coordinator checks its last commit or file change after watchdog_interval_minutes and nudges only when nothing moved. After watchdog_max_nudges without progress, the coordinator replaces the stalled thread or escalates to the owner."
+    applies_to: dispatcher
+    rule: "Whenever a thread owes output, the dispatcher checks its last commit or file change after watchdog_interval_minutes and nudges only when nothing moved. After watchdog_max_nudges without progress, the dispatcher replaces the stalled thread or escalates to the coordinator."
   - id: THR-04
     applies_to: all
     rule: "Threads write plans and round reports under ./governance/plans/ and post one line per hand-off in chat (what was written, where). Fix lists travel through round reports, not through the coordinator. Re-read shared files immediately before writing to avoid sync lag."
+  - id: THR-05
+    applies_to: dispatcher
+    rule: "The dispatcher keeps its whole working state in ./governance/plans/batch-<NNN>.md and the ledgers, so it is replaced at its first compression, at the next hand-off."
+  - id: THR-06
+    applies_to: coordinator
+    rule: "The coordinator lives for the whole project and keeps its context small enough not to compress: it reads summaries, ledgers and state files, never diffs, logs, research or whole contracts, and hands lookups to worker threads. It writes what it knows to ./governance/project-state.yaml and the decision log at each hand-off, and re-reads them and the rules after any compression."
 
 plans_and_criticality:
   - id: PLAN-01
@@ -184,7 +193,7 @@ pull_requests_and_reviews:
     rule: "Read the diff and the acceptance contract before the plan and PR description. Confirm each criterion the PR claims from CI output or by re-running its verify step; a claimed criterion without passing proof is a must-fix finding."
   - id: MRG-01
     applies_to: review
-    rule: "Squash-merge only on the coordinator's explicit go, pinned to the reviewed head SHA, with required CI green (and all target_platforms green for critical PRs). If behind main, update via merge commit (never force-push), re-verify diff and CI, and merge on the new SHA."
+    rule: "Squash-merge only on an explicit go (dispatcher for non-critical PRs, coordinator for critical ones), pinned to the reviewed head SHA, with required CI green (and all target_platforms green for critical PRs). If behind main, update via merge commit (never force-push), re-verify diff and CI, and merge on the new SHA."
 
 testing_and_ci:
   - id: TST-01
