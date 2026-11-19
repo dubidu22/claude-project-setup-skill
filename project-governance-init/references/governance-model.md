@@ -28,6 +28,7 @@ one repo, each with a role and a narrow remit:
 | **coordinator** (lives for the whole project, never replaced) | splits work into lane batches, spawns/replaces threads, approves plans, grants merge go, logs D-numbers; reads ledgers and PR state instead of relaying messages | writes product code; approves scope changes or acceptance contracts |
 | **dispatcher** (default on) | runs one batch at a time: spawns, watches and replaces worker threads, keeps `batch-<NNN>.md` and ledgers current, grants merge go for non-critical PRs | approves plans, critical PRs or anything touching scope |
 | **specify** (with acceptance contracts) | in its own chat: interviews the owner about a feature idea or plan change, researches and drafts the acceptance contract, groups work packages, updates the roadmap; records approval and creates issues on the owner's own yes | approves anything itself; touches rules, state, code or D-numbers |
+| **assist** | walks the owner through one hand step (accounts, hosting, keys, repository settings) in its own thread, checks the result, removes it from `owner_open_steps` | has a secret pasted into chat; decides anything |
 | **implementation** | reads KB + plan, writes tests then code inside its lane, opens PRs, answers findings with exact fix lists | merges, pushes to main, force-pushes |
 | **review** | reviews a batch's PRs in rounds, writes round reports, checks CI, squash-merges on coordinator go | authors the PR it reviews |
 | **kb** | compiles decisions into the decision-log PR on the configured cadence and self-merges it | reviews code |
@@ -49,6 +50,16 @@ true`: a dispatcher takes the per-PR operations (`ROLE-11`, `LANE-02`,
 `THR-01`, `THR-03`). Because all of its state is in `batch-<NNN>.md` and the
 ledgers, it is replaced at its first compression (`THR-05`). The dispatcher is
 on by default; turn it off only for a small project with one or two lanes.
+
+**Owner-facing work leaves the coordinator too.** The coordinator answers
+short questions itself, but a hand step the owner wants to carry out (account,
+hosting, SSH or repository settings, a deploy checklist) becomes an assist
+thread (`ROLE-12`, `ROLE-13`): the walkthrough, the troubleshooting and the
+screenshots would otherwise sit in the coordinator's context for the rest of
+the project. Open hand steps are kept as titles in `owner_open_steps` in the
+state file. Because work now starts in threads the owner may not be looking
+at, the coordinator announces every thread the owner has to see or answer in,
+and says when one is waiting for them (`THR-12`).
 
 **The coordinator is the one thread that is never replaced** (`THR-02`,
 `THR-06`). It lives for the whole project and stays small: it reads summaries, ledgers and state files only, hands every
@@ -180,10 +191,10 @@ D-001. The invariants are the things that, when violated, caused real damage:
 | `project_profile` | — | stack preset, target platforms, fast checks, local env, lanes, labels, mapping note, `workspace_root`, `state_file`, `plans_dir` |
 | `execution_profile` | — | `model_routing` (3 roles) and `token_economy` (profile name + 10 numbers/enums) |
 | `meta` | META-01..02 | ruleset edits are critical; state lives elsewhere |
-| `roles` | ROLE-01..11 | one rule per role, plus owner hand steps and the approval rule; ROLE-10 (specify) and ROLE-11 (dispatcher) only when enabled |
+| `roles` | ROLE-01..13 | one rule per role, plus owner hand steps and the approval rule; ROLE-10 (specify) and ROLE-11 (dispatcher) only when enabled |
 | `autonomy` | AUTO-01..03 | horizon, what waits for the owner, working ahead |
 | `lanes` | LANE-01..04 | batching, concurrency cap, ownership + infra lock, release-branch exception |
-| `threads_and_watchdog` | THR-01..11 | onboarding + fitness check, atomic replacement, watchdog, where plans/reports go |
+| `threads_and_watchdog` | THR-01..12 | onboarding + fitness check, atomic replacement, watchdog, where plans/reports go |
 | `plans_and_criticality` | PLAN-01..06, CRIT-01..02 | plan-before-code, acceptance contracts (PLAN-03..06, when `acceptance_contracts` is on), what is critical, what critical requires |
 | `pull_requests_and_reviews` | PR-01..03, REV-01..03, MRG-01 | title format, CI-before-review, branch freeze, round caps, report format, criterion proof (REV-03), merge protocol |
 | `testing_and_ci` | TST-01..02, CI-01 | tests first, never weaken tests, fast vs full matrix |

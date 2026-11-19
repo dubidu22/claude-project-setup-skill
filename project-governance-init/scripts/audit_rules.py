@@ -33,7 +33,7 @@ from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Any
 
-VALID_SCOPES = {"owner", "coordinator", "dispatcher", "specify", "implementation", "review", "kb", "audit", "all"}
+VALID_SCOPES = {"owner", "coordinator", "dispatcher", "specify", "assist", "implementation", "review", "kb", "audit", "all"}
 VOLATILE_KEYS = {
     "active_now",
     "paused",
@@ -414,7 +414,7 @@ def run_checks(data: dict[str, Any], rules: list[Rule], raw_text: str, state_tex
 
     # --- A11 optional roles: defined when used, and kept inside their authority ---
     role_scopes = {str(r.applies_to).strip() for r in rules if r.section == "roles" and r.applies_to}
-    for scope in ("dispatcher", "specify"):
+    for scope in ("dispatcher", "specify", "assist"):
         used = [r for r in rules if r.applies_to and scope in str(r.applies_to) and r.section != "roles"]
         if used and scope not in role_scopes:
             ids = ", ".join(r.id or "?" for r in used)

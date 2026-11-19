@@ -119,6 +119,10 @@ work: open a new chat and specify the first milestone ("specify: <idea>");
 approve the contract there; tell the coordinator to pick it up. Plan changes
 go the same way. Do not write criteria or roadmap goals as part of init.
 
+Tell the owner that walkthroughs for their own hand steps (accounts, hosting,
+keys, repository settings) open in an assist thread, and that the coordinator
+says so when it starts one.
+
 Also pass on three owner habits that save the most (reference file, section
 9): do not poke a thread that has been silent for longer than the cache
 lifetime, tell the coordinator once and let it start a fresh one; send the

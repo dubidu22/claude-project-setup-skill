@@ -10,7 +10,9 @@ the token budget are in `references/acceptance-contracts.md` (in a scaffolded
 workspace: `tools/acceptance-contracts.md`). Read it before step 3.
 
 Run this in its own chat, not in the coordinator chat: the interview and the
-research stay here, and the coordinator later reads four lines. In a governed
+research stay here, and the coordinator later reads four lines. If you are
+called in the coordinator chat, say in one line that specify is starting in a
+thread and that the questions will be asked there, then hand over. In a governed
 project you are a specify thread (`ROLE-10`). Without a governance workspace,
 work in `./plans` and say that init has not been run.
 

@@ -25,7 +25,15 @@ that file; never mention this choice to the user.
 | a feature idea or a change of plans turned into criteria, issues and a roadmap update | `specify.md` | drafts only, until the owner says yes |
 | an existing ruleset, state file, roadmap or acceptance contract checked | `audit.md` | no: report only |
 
-If it is unclear which one is meant, ask one question. None of the three turns
+**Say first, then act.** Before any tool call or hand-off, write one line in
+the chat the user typed in: what is starting and where questions will appear.
+If the work runs in another thread, name that thread and say whether the user
+has to answer something there; say so again when that thread is waiting for
+them. A user who sees nothing after typing a command assumes it failed.
+
+Called with no request at all (only the skill's name): reply in the same chat
+with the three jobs as a short list and start nothing until the user picks.
+Otherwise, if it is unclear which one is meant, ask one question there. None of the three turns
 into another on its own: an audit reports and stops; specify never changes
 rules; init never writes criteria.
 
