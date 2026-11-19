@@ -506,6 +506,14 @@ def render_rules_yaml(cfg: dict[str, Any]) -> str:
             "    applies_to: review",
             '    rule: "Read the diff and the acceptance contract before the plan and PR description. Confirm each criterion the PR claims from CI output or by re-running its verify step; a claimed criterion without passing proof is a must-fix finding."',
         ]
+    extra_role_rules += [
+        "  - id: ROLE-12",
+        "    applies_to: assist",
+        f"    rule: {yaml_quote('An assist thread walks the owner through one hand step (account, hosting, key or repository settings) one step at a time and checks the result where it can. It never has a secret pasted into chat: secrets go straight into the service that stores them. When the step is done it removes it from owner_open_steps in ' + ws + '/project-state.yaml and ends.')}",
+        "  - id: ROLE-13",
+        "    applies_to: coordinator",
+        f"    rule: {yaml_quote('Answer the owner' + q + 's short questions directly. Keep open hand steps in owner_open_steps in ' + ws + '/project-state.yaml; asked what is open, list them by title only. When the owner wants to do one, or an answer needs more than a few lines of instructions, start an assist thread for it instead of walking through it here.')}",
+    ]
     if disp:
         extra_role_rules += [
             "  - id: ROLE-11",
@@ -685,6 +693,9 @@ def render_rules_yaml(cfg: dict[str, Any]) -> str:
             if int(cfg.get("coordinator_compact_at_tokens", 50000)) > 0
             else []
         ),
+        "  - id: THR-12",
+        "    applies_to: coordinator",
+        '    rule: "Before starting a thread the owner will see or has to answer in, post one line here: what it does and what the owner has to do in it. Post one more line when a thread is waiting for the owner. Never start work silently."',
         "  - id: THR-07",
         "    applies_to: all",
         '    rule: "A thread silent for longer than execution_profile.token_economy.cache_ttl_minutes pays for its whole history again on its next message. Before such a wait, write a three-line handoff (goal, done, next) into your plan or round report. Except for the coordinator, work that resumes after the gap goes to a fresh thread started from that handoff."',
@@ -806,6 +817,7 @@ def render_state_yaml(cfg: dict[str, Any]) -> str:
         "  thread_freeze: false",
         f"  active_milestones: [{milestones_yaml}]",
         "  owner_autonomy_message_ids: []",
+        "  owner_open_steps: []   # hand steps waiting for the owner, titles only (ROLE-13)",
         "",
         "notifications_pending:",
         triggers_yaml,

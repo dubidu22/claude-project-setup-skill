@@ -34,8 +34,8 @@ stale silently. Flag and move to `project-state.yaml`:
 ## 2. Scope: every rule names who it binds
 
 `applies_to` must be one of `owner | coordinator | dispatcher | specify |
-implementation | review | kb | audit | all`. A `dispatcher` or `specify`
-scope needs a rule in `roles` that defines the role. Also check that the scope is *right*: a rule about merge
+implementation | review | kb | audit | all` (plus `assist`). A `dispatcher`,
+`specify` or `assist` scope needs a rule in `roles` that defines the role. Also check that the scope is *right*: a rule about merge
 protocol scoped to `implementation` (which never merges) is dead; a rule about
 plan approval scoped to `review` binds the wrong thread.
 
@@ -99,6 +99,9 @@ Propose the replacement text for each flagged rule, not just the complaint.
   and none makes it read diffs, logs, research or whole contracts. Without a
   dispatcher and with three or more lanes, expect it to compress; recommend
   turning the dispatcher on.
+- Owner hand steps are walked through in an assist thread, not in the
+  coordinator chat; threads the owner must answer in are announced; no rule or
+  routine has a password, key or token pasted into a chat.
 - The coordinator is not a relay: fix lists go through round reports, status
   is read from ledgers and PR state. A coordinator rule that forwards
   per-PR messages is a token finding and a role finding.
