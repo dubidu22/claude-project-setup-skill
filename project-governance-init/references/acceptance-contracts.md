@@ -45,7 +45,7 @@ One owner per step; no step has two.
 
 | Step | Who | Rule | Never |
 |------|-----|------|-------|
-| Interview, research, draft, work packages, roadmap update, lint | specify thread (its own chat, on the `implementation_and_critical_review` model) | `ROLE-10` | approves; touches rules, state, code or D-numbers |
+| Interview, research, draft, work packages, roadmap update, lint | specify thread (its own chat, on the `specify` model) | `ROLE-10` | approves; touches rules, state, code or D-numbers |
 | Approve the contract; say yes to creating issues | owner | `ROLE-03` | — |
 | Record the approval (status, date, hash); create issues | specify thread, on the owner's own message | `ROLE-10` | edits criteria afterwards |
 | Pick up: lint, log the D-number, mirror the roadmap into the state file, batch work packages by lane | coordinator | `PLAN-03` | interviews, researches or edits criteria |

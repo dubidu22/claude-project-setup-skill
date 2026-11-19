@@ -64,6 +64,9 @@ size (governance-model section 9). First, habits that throw the cache away:
 - threads woken after more than `cache_ttl_minutes` instead of being replaced
   from a handoff (look for long gaps between entries of one thread in the
   ledgers and round reports); a watchdog rule that nudges cold threads
+- model routing where critical work is reviewed on a weaker model than it was
+  written on, or a cheaper routine model whose PRs need more review rounds
+  than before (compare rounds per PR in the review ledger)
 - a rule or routine that changes a thread's model or tool set mid-thread (for
   example one review thread switching models between critical and regular PRs)
 - logs, diffs or full tool output pasted into chat or written into round

@@ -44,9 +44,22 @@ rule exists to get real decisions, not to block when there is nobody to decide.
    platforms, and the **workspace root**: `/mnt/project-files` when the
    coordinator lives in a claude.ai Project, or a folder like `./governance`
    when everything lives in the repo and threads run in Claude Code.
-2. **Model routing and token economy, decoupled**: three model slots
-   (coordinator; implementation and critical review; standard review, audit
-   and KB) and, separately, a token profile. Recommend `balanced`; offer
+2. **Model routing and token economy, decoupled.** The owner chooses the
+   models; never fill them in silently. Show the three presets from
+   `generate_project_rules.py --model-presets` (`economy`, `balanced`, `max`) as one decision card with
+   your recommendation, then let the owner change any of the six slots:
+   coordinator; specify; critical work; routine implementation; routine
+   review, KB and audit; operations (dispatcher, assist). Ask for the names as
+   the owner's model picker shows them and write them as given; preset names
+   carry no version numbers on purpose, so do not invent any. Say the two
+   things that matter when picking: the reviewer of critical work should not
+   be weaker than its author, and a cheaper routine model only pays off if it
+   does not need more review rounds (the review ledger shows rounds per PR).
+   If routine implementation runs on a weaker model than critical work, a PR
+   with must-fix findings after `escalate_after_round` rounds (default 2,
+   0 = never) moves to a fresh thread on the critical-work model (`REV-04`).
+   On the fast path use `balanced` and name it as an assumption in the
+   hand-over. Separately, a token profile. Recommend `balanced`; offer
    `frugal` for solo or long-horizon projects and `max_velocity` when the
    owner is watching closely. Any single number may be overridden. The
    profile table is in the reference file, section 5. Also ask how the owner
