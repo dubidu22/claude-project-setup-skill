@@ -162,3 +162,42 @@ def test_ledger_tables_stats_and_check(w):
     for needle in ("round 1 must record the reviewer's `critical: yes|no`", "merged with open must-fix findings",
                    "`compactions` must be a whole number"):
         assert needle in bad.stdout, needle
+
+
+# ---- second review: pending decisions, worktree, pickup -----------------------------------
+
+def test_pending_decisions_file_and_one_writer_for_the_log(w):
+    w.generate(None, "workspace_root=./governance")
+    w.scaffold()
+    pending = (w.ws / "kb" / "pending-decisions.md").read_text()
+    assert "One writer: the\ncoordinator" in pending and "it never edits this file" in pending
+    coord = (w.ws / "project_instructions.md").read_text()
+    assert "kb/pending-decisions.md" in coord and "You never write `kb/decision-log.md`" in coord
+    kb = (w.ws / "kb" / "README.md").read_text()
+    assert "decision-log pull request to `main`" in kb and "claude.ai Project" not in kb
+    # the coordinator keeps its entries across a refresh
+    (w.ws / "kb" / "pending-decisions.md").write_text(pending + "\n## D-007 (2026-03-04, coordinator)\nkept\n")
+    w.scaffold("--refresh")
+    assert "D-007" in (w.ws / "kb" / "pending-decisions.md").read_text()
+
+
+def test_claude_ai_project_has_no_decision_log_pr(w):
+    w.generate()
+    w.scaffold()
+    kb = (w.ws / "kb" / "README.md").read_text()
+    assert "there are no pull requests" in kb and "pull request to" not in kb
+    assert not DANGLING.search(workspace_text(w))
+
+
+def test_worktree_and_pickup_are_in_the_instructions(w):
+    w.generate(None, "workspace_root=./governance")
+    w.scaffold()
+    coord = (w.ws / "project_instructions.md").read_text()
+    assert "git worktree add ../<repo>-governance governance" in coord and "every starter block" in coord
+    assert "contract_tool.py pickup" in coord and "names its hash" in coord and "copy on the default branch" in coord
+    assert "git worktree add ../<repo>-governance governance" in (w.ws / "dispatcher_instructions.md").read_text()
+    plans = (w.ws / "plans" / "README.md").read_text()
+    assert "git worktree add ../<repo>-governance governance" in plans and "origin/main" in plans
+    w.generate(None, "acceptance_contracts=false")
+    w.scaffold("--refresh")
+    assert "origin/main" not in (w.ws / "plans" / "README.md").read_text()

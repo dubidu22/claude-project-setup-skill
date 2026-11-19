@@ -69,4 +69,5 @@ Shared by all three:
 - `scripts/`: `generate_project_rules.py` and `scaffold_workspace.py` write
   files (init only); `audit_rules.py`, `ledger_tool.py` and `contract_tool.py`
   only read, except `contract_tool.py record-issue`, which notes a created
-  issue number (specify only). Run the tools; do not read their source.
+  issue number (specify only). `contract_tool.py pickup` is the coordinator's
+  check before it records a contract. Run the tools; do not read their source.

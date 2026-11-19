@@ -782,8 +782,13 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
               "A review thread is never the PR author. It reviews all PRs of a batch in rounds, writes round reports "
               "and their ledger entries, inspects CI checks, and squash-merges only on " + merge_go + "."),
         *rule("ROLE-08", "kb",
-              "The KB thread compiles pending decisions into the decision-log PR according to "
-              "execution_profile.token_economy.kb_pr_cadence and self-merges without code review."),
+              ("The KB thread compiles the entries of " + ws + "/kb/pending-decisions.md into the decision-log PR "
+               "according to execution_profile.token_economy.kb_pr_cadence and self-merges without code review."
+               if in_repo else
+               "The KB thread compiles the entries of " + ws + "/kb/pending-decisions.md into " + ws
+               + "/kb/decision-log.md according to execution_profile.token_economy.kb_pr_cadence; it is the decision "
+               "log's only writer and writes it without code review.")
+              + " It never edits the pending file."),
         *rule("ROLE-09", "audit",
               "When triggered by execution_profile.token_economy.batch_audit_mode, an audit thread inspects the merged "
               "batch diff for cross-PR inconsistencies and contract touches only, and writes its findings to "
@@ -867,13 +872,15 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
     threads += rule("THR-06", "coordinator",
                     "The coordinator lives for the whole project and keeps its context small: it reads summaries, "
                     "ledger entries and state files, never diffs, logs, research or whole contracts, and hands lookups "
-                    "to a thread that is already running. It writes what it knows to " + ws + "/project-state.yaml and "
-                    "the decision log at each hand-off, and re-reads them and the rules after any compression.")
-    threads += rule("THR-10", ops,
+                    "to a running thread. At each hand-off it writes state to " + ws + "/project-state.yaml and new "
+                    "decisions to " + ws + "/kb/pending-decisions.md, which only it writes, and re-reads them and "
+                    "its rules after any compression.")
+    threads += rule("THR-10", "coordinator,dispatcher" if disp else "coordinator",
                     "Starting a thread: if you have a tool that opens a thread or session, use it and set the model "
                     "from execution_profile.model_routing there. If you have none, or it cannot set the model, write a "
-                    "starter block (role, model, extract to read, first task) and ask the owner to open the chat with "
-                    "that model. A new thread's first line names its role and, if it can see it, its model.")
+                    "starter block (role, model, extract to read, first task"
+                    + (", the worktree command of THR-13" if in_repo else "") + ") and ask the owner to open the chat "
+                    "with that model. A new thread's first line names its role and, if it can see it, its model.")
     if compact_every > 0:
         when = "each batch" if compact_every == 1 else f"every {compact_every} batches"
         threads += rule("THR-11", "coordinator",
@@ -886,10 +893,14 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
                     "Never start work silently.")
     if in_repo:
         threads += rule("THR-13", "all",
-                        "Working files (plans, round reports, ledger entries, batch files, project-state.yaml) are "
-                        "committed on branch " + gov + " by their one writer: pull with rebase, commit, push, never "
-                        "force-push, never on a product branch. The ruleset, governance-config.json, "
-                        + ("acceptance contracts, the roadmap " if contracts else "") + "and the KB change on " + main_branch + " by pull request only; the "
+                        "Working files (plans, round reports, ledger entries, batch files, state, pending decisions) "
+                        "live on branch " + gov + ": their one writer commits them in a second worktree (git worktree "
+                        "add ../<repo>-" + gov + " " + gov + "), rebasing before each push, never force-pushing, "
+                        "never on a product branch.")
+        threads += rule("THR-14", "all",
+                        "The ruleset, its config, " + ("acceptance contracts, the roadmap " if contracts else "")
+                        + "and the decision log change on " + main_branch + " by pull request only, and " + main_branch
+                        + " holds the copy that counts: a copy on " + gov + " that differs from it is not valid. The "
                         + ops + " merges " + main_branch + " into " + gov + " after each such merge.")
     threads += [
         *rule("THR-07", "all",
@@ -919,9 +930,9 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
         plans += [
             *rule("PLAN-03", "coordinator",
                   "Work on a milestone starts only from an owner-approved acceptance contract written by a specify "
-                  "thread. On pickup, lint it, record its id, version, D-number and hash in approved_contracts in "
-                  + ws + "/project-state.yaml (the KB thread copies the entry and the owner's approval message into "
-                  "the decision log) and mirror the roadmap's active milestones there. Nobody edits an approved "
+                  "thread. Pick one up only on the owner's message naming its hash: run contract_tool.py pickup with "
+                  "that hash, record the printed line in approved_contracts in " + ws + "/project-state.yaml and in "
+                  "the pending decisions, and mirror the roadmap's active milestones there. Nobody edits an approved "
                   "contract; a change is a new version from specify."),
             *rule("PLAN-04", "implementation",
                   "One work package is one plan and one PR. Plans cite the acceptance-contract criterion ids they "
@@ -1078,7 +1089,7 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
         "  - this_ruleset           # and the project instructions generated from it",
         *(["  - approved_acceptance_contracts"] if contracts else []),
         "  - kb_decision_log        # newest D-entry first",
-        "  - pending_kb_batch       # decided in session, awaiting the KB PR",
+        "  - pending_kb_batch       # kb/pending-decisions.md: decided, not yet compiled into the decision log",
         "  - project_memory",
         "  - repo_claude_md",
         "",
@@ -1157,10 +1168,10 @@ def role_extracts(rules_text: str) -> dict[str, str]:
     m = re.search(r"^project_profile:\n.*?(?=^meta:)", rules_text, re.MULTILINE | re.DOTALL)
     profile = m.group(0).rstrip() if m else ""
     found = _RULE_RE.findall(rules_text)
-    roles = sorted({scope for _, scope, _ in found} - {"all", "owner"})
+    roles = sorted({s for _, scope, _ in found for s in scope.split(",")} - {"all", "owner"})
     out: dict[str, str] = {}
     for role in roles:
-        mine = [(rid, scope, body) for rid, scope, body in found if scope in (role, "all")]
+        mine = [(rid, scope, body) for rid, scope, body in found if {role, "all"} & set(scope.split(","))]
         lines = [
             f"# Extract for {role} threads. Generated with claude-project-rules.yaml; do not edit.",
             "# It holds the rules scoped to this role or to all. If it and the full file ever differ, the full file wins.",
@@ -1561,7 +1572,7 @@ def derive_config(rules_path: Path, state_path: Path | None) -> tuple[dict[str, 
         if isinstance(v, int) and not isinstance(v, bool):
             cfg[key] = v
 
-    scopes = {str(r.applies_to) for r in rules}
+    scopes = {s.strip() for r in rules for s in str(r.applies_to).split(",")}
     cfg["dispatcher"] = "dispatcher" in scopes
     cfg["acceptance_contracts"] = any(re.search(r"acceptance[- ]contract", r.text, re.I) for r in rules)
     cfg["allow_parallel_release_branch"] = "LANE-04" in by_id

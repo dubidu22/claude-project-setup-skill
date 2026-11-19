@@ -48,8 +48,9 @@ One owner per step; no step has two.
 | Interview, research, draft, work packages, roadmap update, lint | specify thread (its own chat, on the `specify` model) | `ROLE-10` | approves; touches rules, state, code or D-numbers |
 | Approve the contract; say yes to creating issues | owner | `ROLE-03` | — |
 | Record the approval (status, date, hash, the owner's message); create issues and record their numbers | specify thread, on the owner's own message that names the hash | `ROLE-10` | edits the contract afterwards |
-| Pick up: lint, record id, version, D-number and hash in the state file, mirror the roadmap's active milestones there, batch work packages by lane | coordinator | `PLAN-03` | interviews, researches or edits the contract |
-| Copy the pickup record and the owner's approval message into the decision log | KB thread | `KB-01` | changes the hash or the quote |
+| Tell the coordinator to pick the contract up, naming its hash | owner | `ROLE-03` | — |
+| Pick up: check the contract against the hash the owner named (`contract_tool.py pickup`), record the printed line in the state file and the pending decisions, mirror the roadmap's active milestones, batch work packages by lane | coordinator | `PLAN-03` | picks up without the owner's hash; interviews, researches or edits the contract |
+| Compile the pending pickup entry into the decision log | KB thread | `ROLE-08` | changes the hash or the quote |
 | Plans and PR proof per criterion | implementation threads | `PLAN-04` | changes a criterion |
 | Confirm claimed criteria | review threads | `REV-03` | accepts a claim without proof |
 | Close the milestone; handle dropped work | coordinator | `PLAN-05` | closes with an open must criterion |
@@ -102,11 +103,17 @@ and never needs the interview or the research.
    The specify thread then sets `status: approved` and fills `approval.by`,
    `date`, `hash` and `owner_message`. Section 6 says what is frozen from
    then on and how that is checked.
-7. **Pickup and execution.** The coordinator lints the contract and records
-   the pickup line (`<id> v<version> D-<n> hash <hash>`, printed by
-   `contract_tool.py summary`) in `approved_contracts` of the state file; the
-   KB thread copies it into the decision log. It never writes into the
-   contract. `contract_tool.py goal` refuses a contract without that record,
+7. **Pickup and execution.** The owner tells the coordinator "pick up <id>
+   <hash>", with the hash they approved. The coordinator runs
+   `contract_tool.py pickup <contract> --hash <hash> --decision D-<n>`: it
+   lints the contract, compares its content with the hash the owner named
+   (and, in a repo, with the copy on the default branch) and only then prints
+   the pickup line `<id> v<version> D-<n> hash <hash>`. The coordinator
+   records that line in `approved_contracts` of the state file and in
+   `kb/pending-decisions.md`; the KB thread compiles it into the decision
+   log. Naming the hash at pickup closes the gap between approval and pickup,
+   when no record exists yet to compare with. The coordinator never writes
+   into the contract. `contract_tool.py goal` refuses a contract without that record,
    so no loop starts on a contract the coordinator has not seen. Implementation plans cite the ids they cover and threads read
    `python3 tools/contract_tool.py brief <contract> [--ids AC-3,AC-4]` instead
    of the whole file. A thread working in Claude Code can run the loop with the
@@ -192,13 +199,23 @@ and `goal` compare them:
 | `approval.hash` in the contract | specify thread | C027: edited in place |
 | `approval.owner_message` (the owner's "approved <hash>") | specify thread, quoting the owner | C038: the message approves something else |
 | `approved_contracts` in the state file, and the decision log | coordinator, then KB thread | C037: differs from what was picked up |
+| the copy on the default branch (in a repo) | the owner's merged pull request | C039: differs from the copy the owner reviewed |
 
-With an in-repo workspace there is a fourth, stronger one: contracts reach
-the default branch only by pull request, and with CODEOWNERS and required
-code-owner review that pull request needs the owner's review. In a claude.ai
-Project there is no such technical barrier; the three records make a silent
-change take coordinated edits in files owned by other roles, which the audit
-looks for, but they do not make it impossible.
+The fourth is the strong one. With an in-repo workspace, contracts reach the
+default branch only by pull request, and with CODEOWNERS and required
+code-owner review that pull request needs the owner's review. Threads work
+on the governance branch, which is not protected, so the tool does not trust
+the copy there: `lint`, `goal` and `pickup` compare an approved contract
+with `origin/<default_branch>` (run `git fetch` first) and fail if it
+differs, if its approval fields differ, or if it is not on that branch at
+all. Rewriting the contract, the owner's message and the pickup record
+together on the governance branch therefore no longer passes.
+
+In a claude.ai Project there is no git and no such barrier. There the three
+records make a silent change take coordinated edits in files owned by other
+roles, which the audit looks for, and the hash the owner names again at
+pickup ties the pickup to their approval; but a thread that rewrites all of
+them after pickup is caught only by someone reading the files.
 
 A contract approved under an older tool version carries a hash that does not
 cover users, access, constraints and out of scope. Lint reports that as a

@@ -115,7 +115,9 @@ Do not paste the YAML file, the sources or the research notes.
   milestone `active` in `roadmap.yaml` if the owner wants it started. With an
   in-repo workspace the contract and the roadmap go in as a pull request to
   the default branch, and the owner's review of that pull request is the
-  approval on record. From here on nobody edits the file, you included.
+  approval on record. Until it is merged, lint reports C039 (the approved
+  contract is not on the default branch yet); that is expected and is what
+  keeps work from starting on an unreviewed copy. From here on nobody edits the file, you included.
 - **Issues** (a separate yes). First the pre-flight: `contract_tool.py issues
   <contract> --preflight` names the labels and milestones the issues need and
   how to list what exists; run it again with `--have-labels` and
@@ -129,9 +131,10 @@ Do not paste the YAML file, the sources or the research notes.
   change nothing: tell the owner which issue numbers are affected and let
   them decide to edit or close. No GitHub access here: save the drafts as
   `plans/issues-<contract id>.md` and say so.
-- Tell the owner the one thing left to do: tell the coordinator
-  "pick up <contract id>". The coordinator records the pickup line from
-  `contract_tool.py summary`; no work starts before.
+- Tell the owner the one thing left to do, and give them the line to send:
+  tell the coordinator "pick up <contract id> <hash>". The hash is what lets
+  the coordinator check that the contract it finds is the one they approved
+  (`contract_tool.py pickup`); no work starts before.
 
 ## Never
 

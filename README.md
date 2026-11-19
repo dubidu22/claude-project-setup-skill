@@ -24,7 +24,7 @@ project-governance-init/
 │   ├── generate_project_rules.py  config JSON -> rules, per-role extracts, state; --set, --dry-run, --derive-config
 │   ├── scaffold_workspace.py      renders assets/templates into the workspace; --github writes github-setup/
 │   ├── audit_rules.py             mechanical ruleset check, read-only
-│   ├── contract_tool.py           contract lint, owner view, hash, pickup-record check, issue drafts and pre-flight, roadmap check, /goal line
+│   ├── contract_tool.py           contract lint, owner view, hash, pickup check, comparison with the default branch, issue drafts and pre-flight, roadmap check, /goal line
 │   └── ledger_tool.py             tables and statistics from the per-PR and per-round ledger entries, read-only
 ├── references/
 │   ├── governance-model.md        the model, the five invariants, rule catalog, operating mechanics, what is enforced by what

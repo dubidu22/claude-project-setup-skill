@@ -59,9 +59,10 @@ def test_round_named_in_a_rule_must_match_the_config(w):
 
 def test_merge_without_must_fix_condition_and_undecided_criticality_are_flagged(w):
     w.generate()
+    # the condition is still in ROLE-11, but it is gone from the rule that sets the merge conditions
     edit(w, "with no open B/M finding in the latest round report and required CI green", "with required CI green")
-    edit(w, "with green CI and no open must-fix finding", "with green CI")
-    assert has(w.audit("--json"), "A09", "nothing requires that no must-fix finding is open")
+    assert "no open must-fix finding" in w.rule("ROLE-11")
+    assert has(w.audit("--json", "--extracts", w.tmp / "none"), "A09", "`MRG-01` sets the merge conditions but does not require")
     w.generate(None, "dispatcher=true")
     text = w.rules_text()
     start = text.index("  - id: CRIT-03")
@@ -81,7 +82,7 @@ def test_stale_or_edited_extract_is_flagged(w):
     original = kb.read_text()
     kb.write_text(original.replace("version: 2.0.0", "version: 1.9.0"))
     assert has(w.audit("--json"), "A12", "another ruleset version")
-    kb.write_text(original.replace("self-merges without code review", "self-merges after review"))
+    kb.write_text(original.replace("writes it without code review", "writes it after review"))
     assert has(w.audit("--json"), "A12", "words rule `ROLE-08` differently")
     start = original.index("  - id: ROLE-08")
     kb.write_text(original[:start] + original[original.index("  - id:", start + 5):])
@@ -111,3 +112,12 @@ def test_fallback_reader_keeps_hash_signs_inside_quotes(w):
     assert pr01.text.endswith("never in branch commit messages.") and "(#N)" in pr01.text
     assert audit_rules.strip_comment('a: "x # y"  # tail') == 'a: "x # y"'
     assert audit_rules.split_inline('"a, b", c, \'d,e\'') == ['"a, b"', "c", "'d,e'"]
+
+
+def test_a_rule_scoped_to_two_roles_is_valid_and_counted_for_both(w):
+    w.generate()
+    assert "applies_to: coordinator,dispatcher" in w.rules_text()
+    r = w.audit("--json", "--strict")
+    assert r.returncode == 0 and findings(r) == []
+    edit(w, "applies_to: coordinator,dispatcher", "applies_to: coordinator,janitor")
+    assert has(w.audit("--json", "--extracts", w.tmp / "none"), "A03", "unknown applies_to value(s): janitor")

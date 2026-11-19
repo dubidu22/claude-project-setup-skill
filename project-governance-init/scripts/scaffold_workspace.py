@@ -17,6 +17,7 @@ into the target directory:
       roadmap.yaml                ordered milestones (only with acceptance_contracts: true)
       kb/README.md
       kb/decision-log.md          with D-001 recording adoption of the ruleset
+      kb/pending-decisions.md     decisions the coordinator made that the KB thread has not compiled yet
       ledger/README.md            entry formats; entries go to ledger/prs, ledger/rounds, ledger/audits
       github-setup/               with --github: create-labels.sh, and for an in-repo workspace CODEOWNERS,
                                   plus labeler files when critical_paths is set. Nothing here takes effect
@@ -32,7 +33,7 @@ files that are generated from the config and never edited by threads.
 Templates use `{{key}}` for any config key (lists are joined with commas,
 `token_cfg.<name>` for token numbers) and whole-line markers for optional
 parts: `<!-- if:flag -->` ... `<!-- endif -->` and `<!-- if:!flag -->`. Flags:
-acceptance_contracts, dispatcher, compaction, in_repo, escalation.
+acceptance_contracts, dispatcher, compaction, in_repo, escalation, contracts_in_repo.
 """
 
 from __future__ import annotations
@@ -95,12 +96,15 @@ def mechanics(cfg: dict[str, Any]) -> str:
             "assume a thread exists or which model it runs on until its first line says so."
         )
         files = (
-            f"- **Shared files (`THR-13`).** Working files live on branch `{cfg['governance_branch']}`: each thread "
-            "commits the files it owns there (pull with rebase, commit, push; never force-push, never on a product "
-            f"branch). The ruleset, the config, {'acceptance contracts, the roadmap ' if cfg['acceptance_contracts'] else ''}and the KB change on "
-            f"`{cfg['default_branch']}` by pull request only. After such a merge, merge `{cfg['default_branch']}` into "
-            f"`{cfg['governance_branch']}` so every thread sees it; that merge is the "
-            f"{'Dispatcher' if cfg['dispatcher'] else 'Coordinator'}'s job."
+            f"- **Shared files (`THR-13`, `THR-14`).** Working files live on branch `{cfg['governance_branch']}`: each "
+            "thread commits the files it owns there, rebasing before each push, never force-pushing, never on a "
+            "product branch. A thread that works on a product branch needs a second worktree for this; put the "
+            f"command into every starter block: `git worktree add ../<repo>-{cfg['governance_branch']} "
+            f"{cfg['governance_branch']}`. The ruleset, the config, "
+            f"{'acceptance contracts, the roadmap ' if cfg['acceptance_contracts'] else ''}and the decision log change on "
+            f"`{cfg['default_branch']}` by pull request only, and the copy there is the one that counts. After such a "
+            f"merge, merge `{cfg['default_branch']}` into `{cfg['governance_branch']}` so every thread sees it; that "
+            f"merge is the {'Dispatcher' if cfg['dispatcher'] else 'Coordinator'}'s job."
         )
     else:
         start = (
@@ -158,10 +162,15 @@ def template_values(cfg: dict[str, Any]) -> tuple[dict[str, str], dict[str, bool
         ),
         "contract_line": (
             "New features and plan changes reach you as an owner-approved acceptance contract from a specify "
-            "thread. On pickup: lint it, record `<id> v<version> D-<n> hash <hash>` (the line `contract_tool.py "
-            "summary` prints) in `approved_contracts` of the state file, mirror the roadmap's active milestones "
-            "there, then batch its work packages by lane (`PLAN-03`). Never edit a contract. If the owner brings you "
-            "a feature idea directly, point them to specify; a change in how something is built stays with you."
+            "thread. Pick one up only when the owner's message names its hash (\"pick up C-002 3fa9c1d2e4b7\"); if "
+            "it does not, ask for the hash from their approval. Then run `python3 tools/contract_tool.py pickup "
+            "<contract> --hash <that hash> --decision D-<n>`. It checks the contract against that hash"
+            + (" and against the copy on the default branch" if in_repo else "") + " and prints the line to record; "
+            "if it refuses, record nothing and tell the owner. Put the printed line into `approved_contracts` of the "
+            "state file and into `kb/pending-decisions.md` with the owner's message, mirror the roadmap's active "
+            "milestones, then batch the work packages by lane (`PLAN-03`). Never edit a contract. If the owner "
+            "brings you a feature idea directly, point them to specify; a change in how something is built stays "
+            "with you."
             if contracts
             else "Keep milestone goals in `project-state.yaml` current."
         ),
@@ -182,7 +191,7 @@ def template_values(cfg: dict[str, Any]) -> tuple[dict[str, str], dict[str, bool
         ),
     })
     flags = {"acceptance_contracts": contracts, "dispatcher": disp, "compaction": every > 0,
-             "in_repo": in_repo, "escalation": bool(esc)}
+             "in_repo": in_repo, "escalation": bool(esc), "contracts_in_repo": contracts and in_repo}
     return values, flags
 
 

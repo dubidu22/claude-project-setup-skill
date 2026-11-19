@@ -78,8 +78,8 @@ rules file; which model a given chat runs on is switched by the owner.
 
 **The coordinator is the one thread that is never replaced** (`THR-02`,
 `THR-06`). It lives for the whole project and stays small: it reads summaries, ledger entries and state files only, hands every
-lookup to a worker, and writes what it knows to `project-state.yaml` and the
-decision log at each hand-off, so that a compression, if one happens anyway,
+lookup to a worker, and writes state to `project-state.yaml` and new decisions to
+`kb/pending-decisions.md` at each hand-off, so that a compression, if one happens anyway,
 loses nothing. Every other thread is disposable by design.
 
 ## 2. Lanes versus file-ownership labels
@@ -263,7 +263,7 @@ D-001. The invariants are the things that, when violated, caused real damage:
 | `roles` | ROLE-01..14 | one rule per role, plus owner hand steps and the approval rule; ROLE-10 (specify) and ROLE-11 (dispatcher) only when enabled |
 | `autonomy` | AUTO-01..03 | horizon, what waits for the owner, working ahead |
 | `lanes` | LANE-01..04 | batching, concurrency cap, ownership (written from the labels that exist), release-branch exception |
-| `threads_and_watchdog` | THR-01..13 | onboarding from the extract + fitness check, replacement, watchdog, one writer per file, how threads are started (THR-10), planned compaction (THR-11, Claude Code only), the governance branch (THR-13, in-repo only) |
+| `threads_and_watchdog` | THR-01..14 | onboarding from the extract + fitness check, replacement, watchdog, one writer per file, how threads are started (THR-10, coordinator and dispatcher), planned compaction (THR-11, Claude Code only), the governance branch and its worktree (THR-13) and the default branch as the copy that counts (THR-14), both in-repo only |
 | `plans_and_criticality` | PLAN-01..05, CRIT-01..03 | plan-before-code, acceptance contracts (PLAN-03..05, when `acceptance_contracts` is on), what is critical, what critical requires, who decides it |
 | `pull_requests_and_reviews` | PR-01..03, REV-01..04, MRG-01 | title format, CI-before-review, branch freeze, round caps and the hard stop, report format, criterion proof (REV-03), escalation by model (REV-04), merge protocol with "no open must-fix finding" |
 | `testing_and_ci` | TST-01..02, CI-01 | tests first, never weaken tests, fast vs full matrix |
@@ -400,7 +400,8 @@ confirmed.
 
 **Shared files (`THR-04`, `THR-13`).** Every file has one writer. A thread
 writes its own plan, its own round reports and its own ledger entries; the
-state file is the coordinator's; the decision log is the KB thread's; the
+state file and `kb/pending-decisions.md` are the coordinator's; the decision
+log is the KB thread's, compiled from the pending file (`ROLE-08`); the
 roadmap and contracts are specify's; the batch file is the dispatcher's once
 the coordinator has composed it. Because the ledger is one small file per PR
 and per round (`ledger/prs/`, `ledger/rounds/`) instead of shared tables, two
@@ -410,15 +411,33 @@ In a repo the files also need a place in git, since implementation threads
 may not push to the default branch:
 
 - Working files (plans, round reports, ledger entries, batch files, the state
-  file) are committed on `governance_branch` by their writer: pull with
-  rebase, commit, push; never force-push; never on a product branch. One
-  writer per file means these pushes do not conflict in content.
-- The ruleset, the config, acceptance contracts, the roadmap and the KB
-  change on the default branch by pull request only. With the CODEOWNERS
-  lines from `github-setup/` and code-owner review required, the owner's
-  review is what lets a contract or a ruleset change in.
+  file, the pending decisions) are committed on `governance_branch` by their
+  writer: rebase before each push; never force-push; never on a product
+  branch (`THR-13`). One writer per file means these pushes do not conflict
+  in content. An implementation thread sits on a product branch, so it keeps
+  a second worktree for the governance branch (`git worktree add
+  ../<repo>-governance governance`); the command is part of every starter
+  block (`THR-10`).
+- The ruleset, the config, acceptance contracts, the roadmap and the decision
+  log change on the default branch by pull request only (`THR-14`). With the
+  CODEOWNERS lines from `github-setup/` and code-owner review required, the
+  owner's review is what lets a contract or a ruleset change in.
 - After such a merge, the dispatcher (or the coordinator) merges the default
   branch into `governance_branch`, so every thread reads one consistent tree.
+- The governance branch is not protected: any thread can commit to it. So
+  the copy of a protected file there proves nothing. The copy on the default
+  branch is the one that counts, and `contract_tool.py` compares an approved
+  contract with `origin/<default_branch>` instead of trusting the working
+  copy (C039).
+
+**The decision log (`ROLE-08`).** The coordinator makes decisions; the KB
+thread writes the log. The hand-over between them is a file, not a chat
+message: the coordinator adds each decision to `kb/pending-decisions.md`,
+the KB thread compiles those entries into `kb/decision-log.md` on its
+cadence, and the coordinator removes an entry once it is in the log. In a
+repo the log changes by a decision-log pull request that the KB thread
+merges itself; in a claude.ai Project there are no pull requests and the KB
+thread writes the log file directly.
 
 **The watchdog and the clock (`THR-03`).** See section 4: it is a check that
 runs when a thread is active, with the time taken from a tool. A guaranteed
@@ -460,15 +479,17 @@ a tool and which rest on threads following the rules:
 |---|---|
 | Config values have the right type; the YAML parses | the generator (refuses, exit 2 or 3) |
 | A fresh ruleset is consistent; the hard stop exists; extracts match | `audit_rules.py` |
-| An approved contract was not edited afterwards | `contract_tool.py lint` and `goal`: the contract's hash, the owner's quoted message and the coordinator's pickup record must agree |
+| An approved contract was not edited afterwards | `contract_tool.py lint`, `goal` and `pickup`: the contract's hash, the owner's quoted message and the coordinator's pickup record must agree; at pickup the content must match the hash the owner names; in a repo it must also match the copy on the default branch |
 | Only the owner approves a contract or a ruleset change | in a repo: CODEOWNERS plus required code-owner review on the default branch, once the owner has set them up. Elsewhere: by rule only (`ROLE-03`) |
 | Labels and milestones exist before issues are created; no duplicate issues | `contract_tool.py issues --preflight` and `record-issue` |
 | No merge with an open must-fix finding; criticality confirmed by the reviewer | by rule (`MRG-01`, `CRIT-03`), visible afterwards in the ledger (`ledger_tool.py check`) |
 | Round caps, the hard stop, replacement, the watchdog | by rule; visible afterwards in round reports and ledger entries |
 
 What remains open: in a claude.ai Project nothing technical stops a thread
-from writing any file, so a thread that edits a contract, its hash and the
-pickup record together is caught only by the owner's quoted message and by
-whoever reads the files. The design makes a silent change take several
+from writing any file, so a thread that edits a contract, its hash, the
+quoted owner message and the pickup record together, after pickup, is caught
+only by whoever reads the files. In a repo this is closed by the comparison
+with the default branch, provided the owner has set up CODEOWNERS and
+required review there and the checkout is fetched. The design makes a silent change take several
 coordinated edits in files owned by other roles; it does not make it
 impossible. The audit exists to look.
