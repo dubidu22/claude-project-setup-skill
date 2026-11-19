@@ -270,7 +270,7 @@ D-001. The invariants are the things that, when violated, caused real damage:
 | `lanes` | LANE-01..04 | batching, concurrency cap, ownership (written from the labels that exist), release-branch exception |
 | `threads_and_watchdog` | THR-01..14 | onboarding from the extract + fitness check, replacement, watchdog, one writer per file, how threads are started (THR-10, coordinator and dispatcher), planned compaction (THR-11, Claude Code only), the governance branch and its worktree (THR-13) and the default branch as the copy that counts (THR-14), both in-repo only |
 | `plans_and_criticality` | PLAN-01..05, CRIT-01..03 | plan-before-code, acceptance contracts (PLAN-03..05, when `acceptance_contracts` is on), what is critical, what critical requires, who decides it |
-| `pull_requests_and_reviews` | PR-01..03, REV-01..05, MRG-01 | title format, CI-before-review, branch freeze, round caps and the hard stop, report format, criterion proof (REV-03), escalation by model (REV-04), fixes at the root and finding kinds (REV-05), merge protocol with "no open must-fix finding" and the ledger gate |
+| `pull_requests_and_reviews` | PR-01..04, REV-01..06, MRG-01..02 | title format, CI-before-review, branch freeze, round caps and the hard stop, report format, criterion proof (REV-03), escalation by model (REV-04), fixes at the root and finding kinds (REV-05), merge protocol with "no open must-fix finding" and the ledger gate |
 | `testing_and_ci` | TST-01..02, VER-01, CI-01 | tests first, never weaken tests, proof by running the product as a user would (VER-01, with `runtime_verification`), fast vs full matrix |
 | `github_kb_and_release` | GH-01, KB-01, REL-01 | issues same day, decision logging with the owner's message quoted, release branching |
 | `hard_invariants_and_owner_prefs` | INV-01.., PREF-01 | licence gate; then, each only if configured: layer-boundary check, telemetry ban, custom invariants; each says what enforces it ("Enforced by: ..."); owner timezone and formatting wishes |
@@ -571,6 +571,54 @@ How the generated setup applies this:
 - **The outcome is measured.** `ledger_tool.py stats` shows the share of
   merged PRs that were reverted. A cheaper model or a leaner profile is an
   improvement only if that number does not rise.
+
+**Further up the ladder** (these five points follow the practice of the
+open repository `equinai/equin`, which backs nearly every agent rule with a
+check or a hook):
+
+- **The ladder has rungs** (`META-03`). From strongest to weakest: a design
+  that makes the mistake impossible; a type; a lint rule, test or CI check;
+  a loud failure at runtime; prose. A repeated correction moves one rung up
+  from where it is now. Another sentence in a rule file is the bottom rung
+  and is chosen only when nothing above it is possible.
+- **Suspect fixes** (`REV-06`). A retry, a timeout or deadline, a cache, or
+  a raised limit that makes a failure go away usually hides the cause. The
+  reviewer treats each as a finding until the PR names the cause it removes.
+- **"Fixed" is derived, not declared** (`REV-06`). A PR that claims to
+  remove a finding kind for good says so in `fixes_kinds`. `ledger_tool.py
+  stats` then reports the claim as pending, holding or regressed from the
+  later round entries. A regressed fix is the signal to go up a rung.
+- **Exemptions are declared, labelled and visible** (`PR-04`). A file that
+  has to break a pull-request check is listed in `pr-check-exemptions.json`
+  as `sanctioned` (permanent, with a reason) or `debt` (with a reason and
+  the issue that removes it). `pr_checks.py` prints every exemption it
+  used, refuses a malformed list, and with `--open-issues` fails a debt
+  entry whose issue is closed. Widening a glob or dropping a label to get a
+  PR through is not an exemption, it is a hole.
+- **An override is one decision, not a switch** (`MRG-02`). When the owner
+  lets a PR merge against the gate, the coordinator records the reason and
+  the head SHA in `ledger/overrides/pr-<N>.yaml`. `ledger_tool.py gate`
+  accepts it for exactly that head, prints it in capitals, and `stats`
+  counts it. A changed PR needs a new decision. Standing bypasses are not
+  offered, because nobody remembers to remove them.
+
+**Known gaps, on purpose.** The checks stop accidents, not a thread that is
+determined to get around them, and none of them is a security boundary:
+
+- `pr_checks.py` judges the labels and file list it is given. It is as
+  strong as the branch protection that requires it and the owner review
+  (CODEOWNERS) of `.github/governance/` and its workflow.
+- File ownership is by path. A file moved into another lane's folder
+  belongs to that lane from then on.
+- The ledger lives on the governance branch, which is not protected. A
+  round entry or an override file is a record, not proof. The merge itself
+  needs the go named in `MRG-01`, and an override needs the owner's own
+  message.
+- The regressed marker goes by dates and PR numbers, not by which commits a
+  branch contains. It can flag a PR that branched before the fix.
+- The comparison with the default branch (`THR-14`) needs a git checkout
+  with the remote; where it cannot run it says so and refuses, it does not
+  pass.
 
 **Foundations first.** All of this assumes the repository can tell a thread
 that its change is wrong. `scripts/repo_readiness.py` reports whether CI,

@@ -1009,6 +1009,11 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
         *rule("PR-03", "implementation",
               "Freeze the branch during an active review round except for requested fix commits (one fix commit per "
               "round). Never force-push."),
+        *rule("PR-04", "implementation,review",
+              "Where the repository runs pr_checks.py: a file that has to break one of its checks is listed in "
+              "pr-check-exemptions.json as sanctioned (permanent, with the reason) or debt (with the reason and "
+              "the issue that removes it), in a PR the owner reviews. Never widen a path glob, drop a label or "
+              "skip the check to get a PR through; an exemption whose issue is closed is removed."),
         *rule("REV-01", "review",
               "Non-critical PRs run up to execution_profile.token_economy.non_critical_max_review_rounds rounds; "
               "should-fix leftovers are then deferred to issues, must-fix findings never (" + must_fix_route + "). "
@@ -1029,6 +1034,12 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
                     "workaround is not a fix and leaves the finding open. Name each finding's kind in the round's "
                     "ledger entry; a kind already seen in an earlier PR is fixed together with a check that stops it "
                     "from coming back (lint rule, type, test or CI check) or a design change that removes it.")
+    reviews += rule("REV-06", "implementation,review",
+                    "A retry, a timeout or deadline, a cache, or a raised limit added to make a failure go away is a "
+                    "workaround until the PR names the cause it removes; the reviewer treats it as a finding (REV-05). "
+                    "A PR that claims to remove a finding kind for good names it in fixes_kinds of its ledger entry. If "
+                    "the kind comes back, ledger_tool.py stats marks the fix regressed and the next fix goes one step "
+                    "up (META-03).")
     if esc:
         after = int(cfg["rounds_after_escalation"])
         reviews += rule("REV-04", ops,
@@ -1042,6 +1053,11 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
                     "in the latest round report (ledger_tool.py gate <N> passes) and required CI green (and all "
                     "target_platforms green for critical PRs). If behind " + main_branch + ", update via merge commit "
                     "(never force-push), re-verify diff and CI, and merge on the new SHA.")
+    reviews += rule("MRG-02", "coordinator,review",
+                    "Only the owner can let a PR merge that the gate stops, and only once: the coordinator records the "
+                    "owner's reason and the head SHA it is for in " + ws + "/ledger/overrides/pr-<N>.yaml. The override "
+                    "holds for that head only; a changed PR needs a new decision. It is never turned into a setting or "
+                    "a standing exception. The same reason a second time means the rule itself changes (META-01).")
 
     # ---- invariants ---------------------------------------------------------
     inv: list[str] = rule("INV-01", "implementation",
@@ -1149,9 +1165,10 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
               "Volatile runtime state (active milestones, pause flags, notification triggers, autonomy message IDs) "
               "lives in project-state.yaml, never hardcoded into static rules."),
         *rule("META-03", "all",
-              "A correction that has to be given a second time becomes a check in the product repository (lint rule, "
-              "type, test, CI check) or a design change that makes the mistake impossible. Prose is the last resort: "
-              "a new rule here needs the owner (META-01), and comments or notes do not bind the next thread."),
+              "A correction that has to be given a second time becomes a check in the product repository or a design "
+              "change, one step up this order of strength: a design that makes the mistake impossible; a type; a lint "
+              "rule, test or CI check; a loud failure at runtime. Prose is the last resort: a new rule here needs the "
+              "owner (META-01), and comments or notes do not bind the next thread."),
         "",
         "roles:",
         *roles,

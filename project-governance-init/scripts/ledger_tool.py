@@ -5,7 +5,9 @@ Read the ledger: one small file per PR and per review round (ledger/README.md).
     python3 ledger_tool.py table [--ledger DIR]   # PRs and rounds as markdown tables
     python3 ledger_tool.py stats [--ledger DIR]   # rounds per PR, compactions per PR, PRs per thread
     python3 ledger_tool.py check [--ledger DIR]   # entries with missing or malformed fields (exit 1 if any)
-    python3 ledger_tool.py gate <PR number>       # may this PR be merged? exit 0 only if the entries say yes (MRG-01)
+    python3 ledger_tool.py gate <PR number> [--head SHA]
+                                                  # may this PR be merged? exit 0 only if the entries say yes (MRG-01),
+                                                  # or the owner's one-off override for exactly this head is recorded
 
 The ledger directory defaults to `../ledger` next to this script's folder (the
 scaffolded `tools/`), or `./ledger`. This tool only reads. Entries are flat
@@ -22,6 +24,8 @@ from pathlib import Path
 PR_KEYS = ("pr", "opened", "thread", "lane", "labels", "critical", "compactions")
 ROUND_KEYS = ("pr", "round", "date", "thread", "head", "verdict", "must_fix", "should_fix", "report")
 REVERT_KEYS = ("pr", "date", "by", "reason")
+OVERRIDE_KEYS = ("pr", "date", "by", "head", "reason")
+MIN_REASON = 20
 INT_KEYS = {"pr", "round", "compactions", "must_fix", "should_fix"}
 
 
@@ -60,13 +64,90 @@ def load_reverts(ledger: Path) -> list[dict[str, str]]:
     return [dict(read_entry(p), _file=p.name) for p in sorted(folder.glob("*.yaml"))] if folder.is_dir() else []
 
 
-def kinds_of(entry: dict[str, str]) -> list[str]:
-    """Finding kinds named in a round entry: `kinds: timer-workaround, missing-test`."""
-    return [k.strip().lower() for k in entry.get("kinds", "").split(",") if k.strip()]
+def load_overrides(ledger: Path) -> list[dict[str, str]]:
+    folder = ledger / "overrides"
+    return [dict(read_entry(p), _file=p.name) for p in sorted(folder.glob("*.yaml"))] if folder.is_dir() else []
 
 
-def gate(pr: str, prs: list[dict[str, str]], rounds: list[dict[str, str]]) -> tuple[bool, list[str]]:
-    """Whether the ledger entries allow PR `pr` to be merged, and why or why not."""
+def kinds_of(entry: dict[str, str], key: str = "kinds") -> list[str]:
+    """Finding kinds named in an entry: `kinds: timer-workaround, missing-test` (rounds), `fixes_kinds: ...` (PRs)."""
+    return [k.strip().lower() for k in entry.get(key, "").split(",") if k.strip()]
+
+
+def same_head(a: str, b: str) -> bool:
+    """Two commit SHAs name the same commit: equal, or one is a prefix of the other (7 characters or more)."""
+    a, b = a.strip().lower(), b.strip().lower()
+    return bool(a) and bool(b) and min(len(a), len(b)) >= 7 and (a.startswith(b) or b.startswith(a))
+
+
+def override_problems(e: dict[str, str]) -> list[str]:
+    out = [f"`{k}` is missing" for k in OVERRIDE_KEYS if not e.get(k)]
+    if e.get("pr") and not re.fullmatch(r"\d+", e["pr"]):
+        out.append(f"`pr` must be a whole number, got '{e['pr']}'")
+    if e.get("head") and not re.fullmatch(r"[0-9a-fA-F]{7,40}", e["head"]):
+        out.append("`head` must be the commit SHA the override is for (7 to 40 hex characters)")
+    if e.get("reason") and len(e["reason"].strip()) < MIN_REASON:
+        out.append(f"`reason` must say why in at least {MIN_REASON} characters")
+    return out
+
+
+def fix_claims(prs: list[dict[str, str]], rounds: list[dict[str, str]]) -> list[tuple[str, str, str, list[str]]]:
+    """(kind, claiming PR, standing, PRs where it came back) for every `fixes_kinds` claim.
+
+    standing: pending (the claiming PR is not merged), holding (merged, the kind has not come up since) or
+    regressed (a round of another PR, dated after the claiming PR's merge round, names the kind again;
+    on the same date the higher PR number counts as later). The standing is derived, never written by hand.
+    """
+    out = []
+    for e in sorted(prs, key=lambda e: num(e.get("pr"))):
+        pr = e.get("pr", "")
+        merge_round = next((r for r in rounds if r.get("pr") == pr and r.get("merged")), None)
+        for kind in kinds_of(e, "fixes_kinds"):
+            if merge_round is None:
+                out.append((kind, pr, "pending", []))
+                continue
+            when = (merge_round.get("date", ""), num(pr))
+            back = sorted({r.get("pr", "") for r in rounds if r.get("pr") != pr and kind in kinds_of(r)
+                           and (r.get("date", ""), num(r.get("pr"))) > when}, key=num)
+            out.append((kind, pr, "regressed" if back else "holding", back))
+    return out
+
+
+def gate(pr: str, prs: list[dict[str, str]], rounds: list[dict[str, str]],
+         overrides: list[dict[str, str]] | None = None, head: str = "") -> tuple[bool, list[str]]:
+    """Whether the ledger entries allow PR `pr` to be merged, and why or why not.
+
+    An owner override (overrides/pr-N.yaml) lets a PR through that the entries would stop, once: it holds
+    for exactly the head it names. That head must be the head of the latest recorded round or, when no
+    round is recorded, the head given with --head. A PR that is already merged is never let through.
+    """
+    ok, reasons = _gate(pr, prs, rounds)
+    if ok:
+        return ok, reasons
+    mine = [o for o in overrides or [] if o.get("pr") == pr]
+    if not mine:
+        return ok, reasons
+    if any(r.startswith("already merged") for r in reasons):
+        return False, reasons + ["an owner override is recorded, but the PR is already merged; an override is used once"]
+    o = mine[-1]
+    wrong = override_problems(o)
+    if wrong:
+        return False, reasons + [f"overrides/{o['_file']} does not count: " + "; ".join(wrong)]
+    last = sorted((r for r in rounds if r.get("pr") == pr), key=lambda r: num(r.get("round")))
+    current = last[-1].get("head", "") if last else head
+    if not current:
+        return False, reasons + [f"overrides/{o['_file']} names head {o['head']}, but no round is recorded to compare it with: "
+                                 "pass the PR's current head with --head"]
+    if not same_head(o["head"], current):
+        return False, reasons + [f"overrides/{o['_file']} is for head {o['head']}, the PR is now at {current}: "
+                                 "the override does not carry over to a changed PR, the owner decides again"]
+    return True, [f"OWNER OVERRIDE by {o['by']} on {o['date']} for head {o['head']}: {o['reason'].strip()}",
+                  "The entries alone would stop this merge:", *[f"  {r}" for r in reasons],
+                  "Merge go comes from the owner only, for this head only; required CI must still be green. "
+                  "The override is counted in `stats`."]
+
+
+def _gate(pr: str, prs: list[dict[str, str]], rounds: list[dict[str, str]]) -> tuple[bool, list[str]]:
     mine = sorted((r for r in rounds if r.get("pr") == pr), key=lambda r: num(r.get("round")))
     reasons: list[str] = []
     if not any(e.get("pr") == pr for e in prs):
@@ -98,9 +179,17 @@ def num(v: str | None, default: int = 0) -> int:
     return int(v) if v is not None and re.fullmatch(r"\d+", v) else default
 
 
-def problems(prs: list[dict[str, str]], rounds: list[dict[str, str]], reverts: list[dict[str, str]] | None = None) -> list[str]:
+def problems(prs: list[dict[str, str]], rounds: list[dict[str, str]], reverts: list[dict[str, str]] | None = None,
+             overrides: list[dict[str, str]] | None = None) -> list[str]:
     out: list[str] = []
     merged = {r.get("pr") for r in rounds if r.get("merged")}
+    for e in overrides or []:
+        out += [f"overrides/{e['_file']}: {w}" for w in override_problems(e)]
+    recorded = {k for r in rounds for k in kinds_of(r)}
+    for e in prs:
+        for kind in kinds_of(e, "fixes_kinds"):
+            if kind not in recorded:
+                out.append(f"prs/{e['_file']}: `fixes_kinds` names '{kind}', a finding kind no review round has recorded")
     for e in reverts or []:
         where = f"reverts/{e['_file']}"
         for k in REVERT_KEYS:
@@ -167,7 +256,8 @@ def table(prs: list[dict[str, str]], rounds: list[dict[str, str]], reverts: list
     return "\n".join(lines) + "\n"
 
 
-def stats(prs: list[dict[str, str]], rounds: list[dict[str, str]], reverts: list[dict[str, str]] | None = None) -> str:
+def stats(prs: list[dict[str, str]], rounds: list[dict[str, str]], reverts: list[dict[str, str]] | None = None,
+          overrides: list[dict[str, str]] | None = None) -> str:
     if not prs:
         return "No PR entries yet.\n"
     per_pr = {e.get("pr", ""): len([r for r in rounds if r.get("pr") == e.get("pr")]) for e in prs}
@@ -206,6 +296,18 @@ def stats(prs: list[dict[str, str]], rounds: list[dict[str, str]], reverts: list
         lines += [f"  {k}: {', '.join('#' + p for p in v)}" for k, v in sorted(repeated.items())]
     else:
         lines.append("Finding kinds seen in more than one PR: none.")
+    claims = fix_claims(prs, rounds)
+    if claims:
+        lines.append("Fixes claimed for a finding kind (`fixes_kinds`), and whether they held:")
+        for kind, pr, standing, back in claims:
+            tail = {"pending": "pending, the PR is not merged", "holding": "holding, not seen since",
+                    "regressed": "REGRESSED, seen again in " + ", ".join("#" + p for p in back)
+                                 + ". The fix did not remove the cause: go one step up the ladder (META-03)"}[standing]
+            lines.append(f"  {kind}: #{pr}, {tail}")
+    used = sorted(overrides or [], key=lambda o: num(o.get("pr")))
+    lines.append(f"Owner overrides of the merge gate: {len(used)}"
+                 + (": " + ", ".join(f"#{o.get('pr', '?')} ({o.get('date', '?')})" for o in used)
+                    + ". Each is a one-off; several for the same reason mean the rule is wrong, change the rule (META-01)." if used else "."))
     return "\n".join(lines) + "\n"
 
 
@@ -214,6 +316,7 @@ def main() -> int:
     ap.add_argument("cmd", choices=["table", "stats", "check", "gate"])
     ap.add_argument("pr", nargs="?", help="PR number (gate only)")
     ap.add_argument("--ledger", type=Path, help="ledger directory (default: ../ledger next to this script, or ./ledger)")
+    ap.add_argument("--head", default="", help="gate only: the PR's current head SHA, needed for an owner override when no round is recorded")
     args = ap.parse_args()
     here = Path(__file__).resolve().parent.parent / "ledger"
     ledger = args.ledger or (here if here.is_dir() else Path("ledger"))
@@ -222,22 +325,24 @@ def main() -> int:
         return 2
     prs, rounds = load(ledger)
     reverts = load_reverts(ledger)
+    overrides = load_overrides(ledger)
     if args.cmd == "gate":
         number = (args.pr or "").lstrip("#")
         if not re.fullmatch(r"\d+", number):
             print("error: gate needs a PR number, e.g. `ledger_tool.py gate 12`", file=sys.stderr)
             return 2
-        ok, reasons = gate(number, prs, rounds)
-        print(f"PR #{number}: {'may be merged' if ok else 'must not be merged'}")
+        ok, reasons = gate(number, prs, rounds, overrides, args.head)
+        by_override = ok and reasons[0].startswith("OWNER OVERRIDE")
+        print(f"PR #{number}: {'may be merged by owner override' if by_override else 'may be merged' if ok else 'must not be merged'}")
         print("\n".join(f"  - {r}" for r in reasons))
         return 0 if ok else 1
     if args.cmd == "table":
         print(table(prs, rounds, reverts), end="")
         return 0
     if args.cmd == "stats":
-        print(stats(prs, rounds, reverts), end="")
+        print(stats(prs, rounds, reverts, overrides), end="")
         return 0
-    found = problems(prs, rounds, reverts)
+    found = problems(prs, rounds, reverts, overrides)
     print("\n".join(found) if found else f"{len(prs)} PR entries and {len(rounds)} round entries, no problems.")
     return 1 if found else 0
 

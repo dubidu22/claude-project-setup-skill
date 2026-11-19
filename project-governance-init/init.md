@@ -184,7 +184,7 @@ rule exists to get real decisions, not to block when there is nobody to decide.
 4. Scaffold the workspace the rules point at (plans, KB with a D-001 entry,
    the ledger folder and its reader, coordinator instructions; `--github`
    adds `github-setup/` with a label script, the pull-request checks
-   (`pr_checks.py`, its config and a workflow) and, for an in-repo
+   (`pr_checks.py`, its config, an empty exemptions list and a workflow) and, for an in-repo
    workspace, a CODEOWNERS snippet and labeler files):
    ```bash
    python3 scripts/scaffold_workspace.py --from-json <workspace_root>/governance-config.json --out-dir <workspace_root> --github
