@@ -67,7 +67,8 @@ from urllib.parse import urlparse
 
 STATUSES = {"draft", "approved", "superseded"}
 PRIORITIES = {"must", "should", "could"}
-VERIFY_TYPES = {"test", "command", "inspection", "manual"}
+# runtime: run the product as a user would and keep evidence (screenshot, recording, transcript, log)
+VERIFY_TYPES = {"test", "command", "runtime", "inspection", "manual"}
 SOURCE_KINDS = {"owner", "research", "repo", "assumption"}
 CATEGORIES = {
     "happy_path", "input_validation", "error_states", "data_persistence",

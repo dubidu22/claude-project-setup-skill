@@ -6,6 +6,12 @@ Durable project knowledge that every new thread reads before acting:
   only for process/architecture changes; routine batch entries are exempt).
 - `architecture.md` — layer order, contracts, invariants (critical).
 - `process.md` — how batches, reviews and releases run here (critical).
+<!-- if:runtime_verification -->
+- `verification.md` — how to start the product, use it as a user would and
+  keep the evidence. A draft until it has been run once from start to finish.
+- `features/` — the feature map: one file per user-facing feature, with the
+  names everyone uses for them.
+<!-- endif -->
 
 - `pending-decisions.md` — decisions made but not yet in the log. The
   coordinator is its only writer.

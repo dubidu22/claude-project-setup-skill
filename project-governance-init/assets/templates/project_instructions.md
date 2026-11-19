@@ -31,6 +31,13 @@ before acting on them.
   decision with the next sequential D-number in `kb/pending-decisions.md`. A
   D-entry for an owner decision quotes the owner's message and its date (`KB-01`).
 - Never write product code yourself; use worker threads for GitHub API lookups.
+- Before any merge go, `python3 tools/ledger_tool.py gate <N>` must pass.
+- A correction you or a reviewer had to give twice does not become a new
+  rule or a reminder. Make it a work package: a lint rule, a type, a test or
+  a CI check in the product repository, or a design change that makes the
+  mistake impossible (`META-03`). `ledger_tool.py stats` lists the finding
+  kinds that came up in more than one PR, and the share of merged PRs that
+  were reverted; read both at the end of each batch.
 - {{contract_line}}
 
 ## How threads are started and watched

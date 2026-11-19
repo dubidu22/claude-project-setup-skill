@@ -37,6 +37,25 @@ project already runs), target platforms (the CI matrix), candidate lanes
 exists (`layer_boundary_check`). Say what you detected and where. A
 recommendation grounded in the repo is worth far more than a generic default.
 
+Then check the foundations:
+
+```bash
+python3 scripts/repo_readiness.py <repo>
+```
+
+It reports whether the repository has CI on pull requests, tests, a linter,
+a type checker and a documented way to run the product. Tell the owner the
+result before stage 1, in two or three lines. Governance multiplies what one
+thread produces; if nothing in the repository tells a thread that its change
+is wrong, more lanes only produce more unchecked changes. So when the level
+is "foundations missing" or "empty": recommend `token_cfg.max_concurrent_lanes=1`,
+an autonomy horizon of one milestone, and the missing foundations as the
+first work package, and say that the setup can be widened once they are in
+place. With "one gap", recommend closing it in the first batch. The owner
+decides; record what they chose. The script reports what exists, not how
+good it is, so read the CI workflow and a few tests yourself (reference
+file, section 12).
+
 ## Pace: one stage at a time, with a recommendation
 
 Present each stage as: what it decides, the trade-off in two or three
@@ -99,7 +118,10 @@ rule exists to get real decisions, not to block when there is nobody to decide.
 4. **Execution lanes and file ownership**: concurrent lanes versus `lane:*`
    labels and the mapping note. Recommend keeping `lane:infra` as the lock for
    shared core files and `lane:docs` so docs need no lock; the lane rule is
-   written from the labels that actually exist. Whether a release-branch
+   written from the labels that actually exist. Ask which folders each label
+   owns and record them as `label_paths` (for example
+   `"lane:cli=src/cli/**"`): with them, CI can check that a PR stays inside
+   its labels, instead of leaving that to a thread's memory. Whether a release-branch
    thread may run in addition to the lane threads. Also `dispatcher`: a
    second, disposable thread for per-PR operations. Recommend on: the
    coordinator lives for the whole project and should never compress, and the
@@ -113,7 +135,18 @@ rule exists to get real decisions, not to block when there is nobody to decide.
    web UI, `local_ui_loopback_only`; banned licences (default AGPL, SSPL,
    non-commercial, unclear); and the project's own hard rules (layer order,
    determinism, schema compatibility). Phrase each invariant as a testable
-   sentence; vague ones are ignored later. Ask for standing formatting wishes
+   sentence; vague ones are ignored later. For each one ask what enforces
+   it, and write it as `"<sentence> [check: <lint rule, test or CI job>]"`;
+   the same question for the licence gate (`licence_check`) and the
+   telemetry ban (`telemetry_check`). An invariant without a check is
+   rendered as "Enforced by: review only" and listed by the audit; say so,
+   and suggest making the missing checks an early work package. Ask also
+   whether there is an API or pattern that keeps being misused: the reliable
+   answer is to ban it in product code with a lint rule and allow it in one
+   named place, recorded as an invariant with that check, not to explain it
+   in a rule. `runtime_verification` (recommend on) adds `VER-01` and
+   scaffolds `kb/verification.md` and the feature map `kb/features/`: proof
+   of user-visible behaviour by running the product, with evidence. Ask for standing formatting wishes
    (`owner_prefs`, a list of sentences) instead of assuming any, and set
    `github_rest_only` only if the threads' GitHub access blocks GraphQL.
    Also ask whether milestones need an owner-approved acceptance contract
@@ -150,8 +183,9 @@ rule exists to get real decisions, not to block when there is nobody to decide.
    mentions but the label list lacks means the note needs rewording.
 4. Scaffold the workspace the rules point at (plans, KB with a D-001 entry,
    the ledger folder and its reader, coordinator instructions; `--github`
-   adds `github-setup/` with a label script and, for an in-repo workspace, a
-   CODEOWNERS snippet and labeler files):
+   adds `github-setup/` with a label script, the pull-request checks
+   (`pr_checks.py`, its config and a workflow) and, for an in-repo
+   workspace, a CODEOWNERS snippet and labeler files):
    ```bash
    python3 scripts/scaffold_workspace.py --from-json <workspace_root>/governance-config.json --out-dir <workspace_root> --github
    ```
@@ -163,6 +197,10 @@ rule exists to get real decisions, not to block when there is nobody to decide.
      `dispatcher_instructions.md` into the dispatcher chat if there is one,
      each started on the model its slot names;
    - run `github-setup/create-labels.sh`;
+   - copy the pull-request checks into the repository and set the branch
+     protection listed in `github-setup/README.md` (no force push, no direct
+     push, required checks). These replace rules a thread would otherwise
+     have to remember;
    - in-repo workspace: check that `default_branch` is the repository's real
      default branch (the tools trust the remote, and report a ruleset that
      says otherwise), and in checkouts that were not made by `git clone` run
@@ -229,7 +267,9 @@ list those switches as their steps in the hand-over.
 | cache lifetime, planned compaction | `cache_ttl_minutes=60`, `coordinator_compact_every_batches=1` (Claude Code only) |
 | acceptance contracts on or off | `acceptance_contracts=true` / `false` |
 | another stack preset | `stack_key=fullstack_web`: replaces lanes, labels, mapping note and checks unless set in the same call |
-| a list | `'ownership_labels=["lane:app","lane:docs"]'`, `'owner_prefs=["..."]'`, `'critical_paths=["src/core/**"]'` |
+| a list | `'ownership_labels=["lane:app","lane:docs"]'`, `'owner_prefs=["..."]'`, `'critical_paths=["src/core/**"]'`, `'label_paths=["lane:cli=src/cli/**"]'` |
+| an invariant with its check | `'custom_invariants=["The schema stays backwards compatible. [check: tests/test_schema_compat.py]"]'`, `licence_check=...`, `telemetry_check=...` |
+| proof by running the product | `runtime_verification=true` / `false` |
 
 Switches take exactly `true` or `false`, numbers whole numbers, lists a JSON
 list; anything else is refused with exit code 2 and nothing is written.
@@ -330,6 +370,9 @@ Nothing live is overwritten before the owner has seen the difference.
 - One duty, one role, and one writer per file. With a dispatcher, per-PR
   operations are the dispatcher's and nothing critical is; the state file is
   the coordinator's; ledger entries belong to the thread that did the work.
+- Do not answer a recurring mistake with another rule. Ask first whether a
+  lint rule, a test, a CI check or a design change can make it impossible
+  (reference file, section 12). Rules are for what takes judgement.
 - Do not carry one project's habits into another. The generic defaults are
   deliberately plain; everything project-specific is an option the owner sets.
 - Modifying the ruleset later is itself critical (`META-01`). Mention this

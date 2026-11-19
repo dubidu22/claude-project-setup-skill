@@ -7,7 +7,7 @@ import re
 import pytest
 import yaml
 
-from conftest import SCRIPTS, errors, findings, run
+from conftest import SCRIPTS, errors, findings, notable, run
 
 
 # ---- the default path ------------------------------------------------------
@@ -16,7 +16,8 @@ def test_default_generation_is_clean(w):
     r = w.generate()
     assert r.returncode == 0, r.stderr
     a = w.audit("--json", "--strict")
-    assert a.returncode == 0 and findings(a) == [], a.stdout
+    assert a.returncode == 0 and notable(a) == [], a.stdout
+    assert [f["severity"] for f in findings(a)] == ["INFO"]  # the licence and telemetry invariants have no check yet
     data = yaml.safe_load(w.rules_text())
     assert data["project"] == "demo" and data["version"] == "2.0.0" and str(data["date"]) == "2026-03-04"
     assert yaml.safe_load(w.state.read_text())["active_now"]["paused"] is False
@@ -100,10 +101,10 @@ def test_awkward_text_survives_everywhere(w):
     assert state["active_now"]["active_milestones"] == ["v0.1: alpha #1", "no"]
     assert rules["project_profile"]["execution_lanes"] == ["a: b", "c #d", "e"]
     assert state["notifications_pending"] == ["done: yes #1"]
-    assert any('Never write "x: y" # here' == r["rule"] for r in rules["hard_invariants_and_owner_prefs"])
+    assert any('Never write "x: y" # here. Enforced by: review only.' == r["rule"] for r in rules["hard_invariants_and_owner_prefs"])
     for extract in (w.ws / "rules").glob("*.yaml"):
         assert yaml.safe_load(extract.read_text())["project"] == NASTY
-    assert findings(w.audit("--json", "--strict")) == []
+    assert notable(w.audit("--json", "--strict")) == []
     # and without PyYAML the audit reads the same rules
     a = w.audit("--json", no_yaml=True)
     assert a.returncode == 0 and json.loads(a.stdout)["rules"] == len(w.rule_ids())
@@ -261,7 +262,7 @@ def test_criticality_merge_go_and_escalation_rules(w):
     assert "confirmed non-critical" in w.rule("ROLE-11") and "no open must-fix finding" in w.rule("ROLE-11")
     rev01, rev04 = w.rule("REV-01"), w.rule("REV-04")
     assert "must-fix findings never (REV-04 applies)" in rev01
-    assert "after review round 1" in rev04 and "comes before the round cap in REV-01" in rev04
+    assert "after review round 2" in rev04 and "comes before the round cap in REV-01" in rev04
     assert "2 more rounds" in rev04 and "stop the PR for the coordinator" in rev04
     assert yaml.safe_load(w.rules_text())["execution_profile"]["token_economy"]["rounds_after_escalation"] == 2
     # same model for routine and critical work: no escalation rule, and REV-01 says where must-fix findings go

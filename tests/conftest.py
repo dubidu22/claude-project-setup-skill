@@ -87,5 +87,10 @@ def findings(result) -> list[dict]:
     return data["findings"] if isinstance(data, dict) else data
 
 
+def notable(result) -> list[dict]:
+    """Findings without the standing note that some invariants have no enforcing check yet (A15)."""
+    return [f for f in findings(result) if f["code"] != "A15"]
+
+
 def errors(result) -> list[dict]:
     return [f for f in findings(result) if f["severity"] == "ERROR"]

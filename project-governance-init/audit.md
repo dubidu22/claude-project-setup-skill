@@ -33,7 +33,9 @@ them is the owner's decision, through init (rules and settings) or specify
    are out of step with the ruleset, in a repository a ruleset, config,
    extract or roadmap that differs from its copy on the remote's default
    branch or a `default_branch` line that disagrees with the remote (A14;
-   run `git fetch` first), and the common contradiction patterns.
+   run `git fetch` first), a single review round for routine PRs, invariants
+   that nothing but review enforces (A15), and the common contradiction
+   patterns.
    Exit code 1 means at least one error.
 3. **Mechanical pass on each acceptance contract.**
    ```bash
@@ -51,7 +53,12 @@ them is the owner's decision, through init (rules and settings) or specify
    ```bash
    python3 scripts/contract_tool.py roadmap <roadmap.yaml> --plans <plans dir>
    python3 scripts/ledger_tool.py check --ledger <ledger dir>
+   python3 scripts/ledger_tool.py stats --ledger <ledger dir>
+   python3 scripts/repo_readiness.py <repo>
    ```
+   `stats` gives the share of reverted PRs and the finding kinds that came up
+   in more than one PR; `repo_readiness.py` says whether the repository has
+   the checks the rules lean on.
 4. **Semantic pass.** Work through `references/audit-checklist.md`: the
    contradiction pairs, scope and role ownership, state leakage, token cost,
    and for contracts whether the criteria are the right ones. Rules most often

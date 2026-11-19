@@ -25,9 +25,11 @@ project-governance-init/
 │   ├── scaffold_workspace.py      renders assets/templates into the workspace; --github writes github-setup/
 │   ├── audit_rules.py             mechanical ruleset check, read-only
 │   ├── contract_tool.py           contract lint, owner view, hash, pickup check, comparison with the default branch, issue drafts and pre-flight, roadmap check, /goal line
-│   └── ledger_tool.py             tables and statistics from the per-PR and per-round ledger entries, read-only
+│   ├── ledger_tool.py             tables, statistics (rounds, reverts, repeated findings) and the merge gate from the ledger entries, read-only
+│   ├── repo_readiness.py          does the repository have CI, tests, a linter, a way to run it? read-only
+│   └── pr_checks.py               pull-request checks for the project's CI: title, closing keywords, lane label, file ownership, critical paths
 ├── references/
-│   ├── governance-model.md        the model, the five invariants, rule catalog, operating mechanics, what is enforced by what
+│   ├── governance-model.md        the model, the five invariants, rule catalog, operating mechanics, what is enforced by what, checks before prose
 │   ├── acceptance-contracts.md    criteria, work packages, approval, freeze, roadmap
 │   └── audit-checklist.md         semantic checks and report format
 ├── assets/templates/              scaffold templates

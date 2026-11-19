@@ -66,6 +66,12 @@ with a verify step each, add the core probe, do the Pareto cut. `could` items
 go to the contract's `cut` list with a reason, so they become backlog issues
 instead of disappearing.
 
+Name features the way `kb/features/` does where that map exists, so the
+criteria, the plans and the owner mean the same thing. For behaviour a user
+sees and no automated test covers end to end, use a `runtime` verify step:
+the product is run as a user would and the evidence is kept
+(`tools/acceptance-contracts.md`, section on verify steps).
+
 Then group every `must` and `should` criterion into `work_packages`, each
 with one `lane:*` label from the ruleset (`project_profile.file_ownership_labels`;
 lint rejects a label the ruleset does not have). Size each package as one unit of

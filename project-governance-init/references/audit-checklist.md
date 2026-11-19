@@ -60,6 +60,8 @@ Check each pair explicitly and quote both rule ids in the finding.
 | Authority order | header `authority`, `project_instructions`, `ROLE-01` | the decision log ranks above the owner's messages although `ROLE-01` lets the owner override any entry; the ruleset or approved contracts are missing from the list; two sources both claim to win; decision log not above repo `CLAUDE.md`; D-entries for owner decisions without the owner's message quoted |
 | One writer per file | `threads_and_watchdog`, `roles`, templates | the coordinator and the KB thread both write the decision log, with no pending-decisions file between them; two roles write the same ledger, the state file or the roadmap (for example an assist thread editing `owner_open_steps`, or a dispatcher "keeping the ledgers current"); in a repo, no rule names the branch working files are committed on |
 | Reviewed copies | git, `project_profile.default_branch` | in a repo: the ruleset, config, extracts or roadmap on the working branch differ from the default branch (A14, C040); `default_branch` names a branch other than the remote's default; the checkout has no `origin/HEAD`, so the tools could not arbitrate; anyone used `lint --no-git` and treated the result as verified |
+| Checks before prose | the whole ruleset, `github-setup/`, the repository | a rule a machine could check is left to prose (PR title, file ownership, force pushes) although the checks were scaffolded and never installed; invariants with "Enforced by: review only" (A15); a rule added to answer a mistake that a lint rule or test would stop; `ledger_tool.py stats` shows the same finding kind in several PRs and no check came of it; comments or notes in the code that justify a workaround; the repository lacks CI, tests or a linter (`repo_readiness.py`) while several lanes run |
+| Proof | `VER-01`, `REV-03`, `kb/verification.md`, PR bodies | `kb/verification.md` still says "draft" while PRs cite it; criteria marked as proven without an evidence file; proof through a test-only shortcut or one entry point of several; a journey that was loosened until it passed; a single review round for routine PRs |
 | Observable triggers | `threads_and_watchdog` | a rule depends on something a thread cannot see: its own compression count as the only replacement trigger, its context size in tokens, a timer nobody fires, `/compact` in a claude.ai Project, a model that is "set" with no rule saying by whom |
 
 ## 4. Token efficiency
@@ -80,6 +82,9 @@ size (governance-model section 9). First, habits that throw the cache away:
 - a new thread spawned per small fix while a warm thread on the same code exists
 - the coordinator woken many times a day for single questions or status
   updates, or reading diffs, logs or whole contracts
+- saving in the wrong place: one review round, or review skipped, while
+  coordination chatter stays (the reverted share in `ledger_tool.py stats`
+  is the number that shows whether a saving cost quality)
 - work packages of the wrong size: `ledger_tool.py stats` shows compactions
   on most PRs or a third round on routine PRs (too big), or many one-line PRs
   each from a fresh thread (too small)

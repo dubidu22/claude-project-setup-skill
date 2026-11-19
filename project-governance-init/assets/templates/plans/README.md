@@ -30,6 +30,13 @@ Worker threads read `contract_tool.py brief`, not the whole file;
 run the tool, never read its source.
 <!-- endif -->
 
+<!-- if:runtime_verification -->
+Behaviour a user can see is proven by running the product as a user would
+(`../kb/verification.md`), and the evidence is kept under
+`evidence/pr<N>/` and named in the PR body (`VER-01`). Plans and reports
+name features as `../kb/features/` does.
+
+<!-- endif -->
 Every plan and round report ends with a three-line handoff, kept current:
 `Goal:` what this thread is for, `Done:` what is finished and where,
 `Next:` the next step. A fresh thread starts from those three lines (`THR-07`).
@@ -40,7 +47,8 @@ report states: head SHA, verdict, in round 1 the reviewer's own finding on
 whether the PR is critical (`CRIT-03`), verified checks, numbered findings
 (B/M must-fix, S should-fix, N note) and, on the next round, how each finding
 was answered (fixed with test proof, deferred with issue link, or declined
-with reason). Each PR and each round also gets a ledger entry
+with reason). A finding is fixed at its root: a comment or a note that
+explains a workaround is not a fix (`REV-05`). Each PR and each round also gets a ledger entry
 (`../ledger/README.md`).
 <!-- if:in_repo -->
 

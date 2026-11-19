@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from conftest import EVALS, errors, findings, run
+from conftest import EVALS, errors, findings, notable, run
 
 PLANTED = EVALS / "audit-planted-contradictions" / "files" / "governance"
 
@@ -60,7 +60,7 @@ def test_round_named_in_a_rule_must_match_the_config(w):
 def test_merge_without_must_fix_condition_and_undecided_criticality_are_flagged(w):
     w.generate()
     # the condition is still in ROLE-11, but it is gone from the rule that sets the merge conditions
-    edit(w, "with no open B/M finding in the latest round report and required CI green", "with required CI green")
+    edit(w, "with no open B/M finding in the latest round report (ledger_tool.py gate <N> passes) and required CI green", "with required CI green")
     assert "no open must-fix finding" in w.rule("ROLE-11")
     assert has(w.audit("--json", "--extracts", w.tmp / "none"), "A09", "`MRG-01` sets the merge conditions but does not require")
     w.generate(None, "dispatcher=true")
@@ -118,6 +118,6 @@ def test_a_rule_scoped_to_two_roles_is_valid_and_counted_for_both(w):
     w.generate()
     assert "applies_to: coordinator,dispatcher" in w.rules_text()
     r = w.audit("--json", "--strict")
-    assert r.returncode == 0 and findings(r) == []
+    assert r.returncode == 0 and notable(r) == []
     edit(w, "applies_to: coordinator,dispatcher", "applies_to: coordinator,janitor")
     assert has(w.audit("--json", "--extracts", w.tmp / "none"), "A03", "unknown applies_to value(s): janitor")
