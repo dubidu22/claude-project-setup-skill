@@ -214,8 +214,24 @@ prints one issue draft per package (title, label, milestone, the criteria as a
 checklist with their verify steps, and a pointer to the contract version and
 hash) and one `backlog` draft per `cut` item.
 
-- Batch by lane, not by criterion: three to six packages per milestone. The
-  ruleset batches PRs by lane (`LANE-01`); issues follow the same grain.
+- Size a package as one unit of work: one thread can finish it without
+  compacting and without a long wait, it ends in one PR, and a reviewer can
+  check it in one round (`PLAN-04`). Too small wastes the fixed cost of
+  starting a thread; too large costs more than proportionally, because a long
+  thread re-reads its growing history every turn, is likelier to compact, and
+  produces a diff that needs more review rounds.
+- As a rule of thumb, about six criteria per package at most (lint warns
+  above that; `--max-package-criteria` changes it) and at most eight packages
+  per milestone. A milestone that needs more is two milestones.
+- Split by what can be built and reviewed on its own, inside one lane label,
+  not just by lane: "import with validation" and "report" rather than
+  "everything in lane:cli". Do not go down to one package per criterion.
+- `after: [key]` on a package says it cannot start before another one is
+  merged. Use it only for real dependencies; unordered packages can run in
+  parallel lanes.
+- The numbers are starting points. The implementation ledger records
+  compactions per PR and the review ledger rounds per PR: packages that
+  regularly cause a compaction or a third round are too big for this project.
 - Every `must` and `should` criterion is in exactly one package; lint fails
   otherwise.
 - An issue cites criteria, it never defines them. The contract is the only

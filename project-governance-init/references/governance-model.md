@@ -285,6 +285,16 @@ Limits to keep in mind when explaining this: small samples, one model, the
 are not published. The study's compaction-threshold settings did not hold up
 against its own live runs and are deliberately not adopted here.
 
+**Task size.** The same mechanism sets the right size for a piece of work.
+Each new thread pays a fixed start-up cost, so many tiny tasks in fresh
+threads are wasteful (`THR-08` gives related small fixes to a warm thread). A
+long task costs more than proportionally: every turn re-reads a growing
+history, a compaction or a wait past the cache lifetime becomes likelier, and
+the diff takes more review rounds. The unit to aim for is a work package: one
+thread, one PR, one review round (`PLAN-04`), about six criteria at most as a
+starting point. The study did not measure task size; the ledgers do, through
+compactions per PR and review rounds per PR.
+
 **The coordinator is the exception that pays.** It is never replaced, so every
 wake-up after the cache lifetime re-sends its whole context. That cost grows
 with its context and with the number of wake-ups, which is why `THR-06` keeps
