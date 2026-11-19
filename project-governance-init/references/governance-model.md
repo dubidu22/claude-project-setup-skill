@@ -61,6 +61,12 @@ state file. Because work now starts in threads the owner may not be looking
 at, the coordinator announces every thread the owner has to see or answer in,
 and says when one is waiting for them (`THR-12`).
 
+**Settings outside the files belong to the owner.** No thread changes the
+Claude app, the project, the account, the repository or the hosting (default
+model, a chat's model, permissions, secrets, branch protection): it names the
+exact change and the owner makes it (`ROLE-14`). Model routing lives in the
+rules file; which model a given chat runs on is switched by the owner.
+
 **The coordinator is the one thread that is never replaced** (`THR-02`,
 `THR-06`). It lives for the whole project and stays small: it reads summaries, ledgers and state files only, hands every
 lookup to a worker, and writes what it knows to `project-state.yaml` and the
@@ -210,11 +216,11 @@ D-001. The invariants are the things that, when violated, caused real damage:
 | `project_profile` | — | stack preset, target platforms, fast checks, local env, lanes, labels, mapping note, `workspace_root`, `state_file`, `plans_dir` |
 | `execution_profile` | — | `model_routing` (6 slots) and `token_economy` (profile name + 10 numbers/enums) |
 | `meta` | META-01..02 | ruleset edits are critical; state lives elsewhere |
-| `roles` | ROLE-01..13 | one rule per role, plus owner hand steps and the approval rule; ROLE-10 (specify) and ROLE-11 (dispatcher) only when enabled |
+| `roles` | ROLE-01..14 | one rule per role, plus owner hand steps and the approval rule; ROLE-10 (specify) and ROLE-11 (dispatcher) only when enabled |
 | `autonomy` | AUTO-01..03 | horizon, what waits for the owner, working ahead |
 | `lanes` | LANE-01..04 | batching, concurrency cap, ownership + infra lock, release-branch exception |
 | `threads_and_watchdog` | THR-01..12 | onboarding + fitness check, atomic replacement, watchdog, where plans/reports go |
-| `plans_and_criticality` | PLAN-01..06, CRIT-01..02 | plan-before-code, acceptance contracts (PLAN-03..06, when `acceptance_contracts` is on), what is critical, what critical requires |
+| `plans_and_criticality` | PLAN-01..05, CRIT-01..02 | plan-before-code, acceptance contracts (PLAN-03..05, when `acceptance_contracts` is on), what is critical, what critical requires |
 | `pull_requests_and_reviews` | PR-01..03, REV-01..04, MRG-01 | title format, CI-before-review, branch freeze, round caps, report format, criterion proof (REV-03), merge protocol |
 | `testing_and_ci` | TST-01..02, CI-01 | tests first, never weaken tests, fast vs full matrix |
 | `github_kb_and_release` | GH-01, KB-01, REL-01 | issues same day, decision logging, release branching |
@@ -242,7 +248,7 @@ up, logs the D-number and batches the packages (`PLAN-03`); plans and PRs cite
 criterion ids with proof (`PLAN-04`); reviewers confirm the claims, reading the
 diff and the contract before the author's framing (`REV-03`); the coordinator
 closes the milestone when every must criterion and the core probe pass
-(`PLAN-05`) and winds down work that a plan change removed (`PLAN-06`).
+and winds down work that a plan change removed (`PLAN-05`).
 
 Criteria are written in exactly one place, the contract. Issues cite them;
 `roadmap.yaml` orders the milestones; `project-state.yaml` mirrors what is
@@ -268,7 +274,7 @@ Evidence: [claude-code-usage-analysis](https://github.com/inevolin/claude-code-u
 | Resuming a 97k-token session after the cache expired | about 10x a fresh session (1.5x while warm); break-even near 10k tokens of history | Workers are not woken after the gap; a fresh thread starts from a three-line handoff (`THR-07`, `THR-03`) |
 | Compacting after the break instead of before | 9.7x vs 2.5x | Handoffs are written before a wait, not reconstructed after it (`THR-07`) |
 | Small related fixes in one warm session vs a new session each | 28% less (n=1) | Related fixes go back to back to the warm thread (`THR-08`) |
-| A test log left in the chat | +15% (750 tokens) to +64% (5,000) over the next six turns | Tool output stays out of the chat (`THR-10`) |
+| A test log left in the chat | +15% (750 tokens) to +64% (5,000) over the next six turns | Tool output stays out of the chat (`THR-09`) |
 | Turning off a tool mid-session; switching model (from the docs) | 22x a normal turn; full re-read | One model and tool set per thread (`THR-09`) |
 | Scheduled runs that resume an old session | about 3x a fresh session each run (estimate) | Threads are disposable and state lives in files (`THR-02`, `THR-05`) |
 | Claude Desktop Code tab vs the CLI for the same fix | at least 1.80x (n=1) | Not a rule; prefer the CLI for Claude Code worker threads where there is a choice |

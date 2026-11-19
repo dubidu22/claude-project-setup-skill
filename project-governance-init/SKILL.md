@@ -6,12 +6,13 @@ description: >
   decision log and owner-approved acceptance contracts). Use it to bootstrap or regenerate
   such a project: write `claude-project-rules.yaml` / `project-state.yaml`, pick a token
   profile, route models, define lanes and `lane:*` labels, set autonomy limits, add a
-  dispatcher, scaffold the workspace. Use it to specify work: turn a brief feature idea or
+  dispatcher, scaffold the workspace, or change a setting later. Use it to specify work: turn a brief feature idea or
   a change of plans into researched acceptance criteria, GitHub issue drafts and an updated
   roadmap. Use it to audit an existing ruleset, CLAUDE.md governance section, roadmap or
   acceptance contract for contradictions, unclear roles, stale state, untestable criteria
   or wasted tokens. Trigger even for short asks like "set up the coordinator", "governance
-  for my repo", "I want to add X", "my plans changed" or "check my project rules".
+  for my repo", "switch to cheaper models", "I want to add X", "my plans changed" or
+  "check my project rules".
 ---
 
 # Project governance
@@ -21,7 +22,8 @@ that file; never mention this choice to the user.
 
 | The user wants | Read | Changes files? |
 |---|---|---|
-| governance for a project that has none, or a setting changed in an existing one | `init.md` | yes: generates and scaffolds |
+| governance for a project that has none | `init.md` | yes: generates and scaffolds |
+| a setting changed in a running project (models, token profile, dispatcher, ...) | `init.md`, section "Changing settings" | yes: regenerates the rules, keeps live state |
 | a feature idea or a change of plans turned into criteria, issues and a roadmap update | `specify.md` | drafts only, until the owner says yes |
 | an existing ruleset, state file, roadmap or acceptance contract checked | `audit.md` | no: report only |
 
@@ -30,6 +32,11 @@ the chat the user typed in: what is starting and where questions will appear.
 If the work runs in another thread, name that thread and say whether the user
 has to answer something there; say so again when that thread is waiting for
 them. A user who sees nothing after typing a command assumes it failed.
+
+**Files only.** This skill reads and writes files in the workspace and the
+repo. It never changes settings of the Claude app, the project or the account
+(default model, a chat's model, permissions, connectors), even when a tool for
+it exists. If such a change is needed, name it and let the user make it.
 
 Called with no request at all (only the skill's name): reply in the same chat
 with the three jobs as a short list and start nothing until the user picks.

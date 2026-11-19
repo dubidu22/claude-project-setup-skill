@@ -8,10 +8,9 @@ in the config. `references/governance-model.md` explains the system (roles,
 lanes, criticality, coordinator load, acceptance contracts); read it when you
 need to explain a trade-off or justify a default.
 
-**Regenerating.** If a `governance-config.json` already exists and the owner
-wants a setting changed, skip the walkthrough: edit the JSON, run step 2 to 4
-of stage 6 on it, and say what changed. Changing a live ruleset needs the
-owner's approval (`META-01`).
+**Changing a setting in a running project.** If a `governance-config.json`
+already exists, skip the walkthrough and follow "Changing settings" at the end
+of this file.
 
 ## Before stage 1: look at the repository
 
@@ -87,7 +86,7 @@ rule exists to get real decisions, not to block when there is nobody to decide.
    Phrase each invariant as a testable sentence; vague ones are ignored later.
    Also ask whether milestones need an owner-approved acceptance contract
    (`acceptance_contracts`, recommend yes; it adds `ROLE-10`, `PLAN-03` to
-   `PLAN-06`, `REV-03` and scaffolds the roadmap, the template and
+   `PLAN-05`, `REV-03` and scaffolds the roadmap, the template and
    `tools/contract_tool.py`).
 6. **Generate and scaffold** (below).
 
@@ -142,6 +141,74 @@ lifetime, tell the coordinator once and let it start a fresh one; send the
 coordinator one message with everything rather than several across the day;
 and run Claude Code worker threads in the CLI rather than the Desktop Code tab
 where there is a choice.
+
+## Changing settings
+
+The owner asks for a change in plain words ("switch to the economy models",
+"be more frugal", "turn the dispatcher off"). Translate it, show what it does,
+wait for their yes, apply it, and say what happens next. Never edit the rules
+file by hand.
+
+**This changes files, nothing else.** A settings change rewrites
+`claude-project-rules.yaml`, `governance-config.json` and the generated
+instruction files. It never changes anything in the Claude app, the project or
+the account: not the default model, not a chat's model, not permissions or
+connectors, even when a tool for that is available. "Switch to the economy
+models" means the routing in the rules file, where only some thread types move
+to the cheaper model; it does not mean setting the project's default model.
+Which model a chat runs on is switched by the owner; list those switches as
+their steps in the hand-over.
+
+| The owner wants | `--set` |
+|---|---|
+| another model preset | `model_preset=economy` (or `balanced`, `max`) |
+| one model changed | `coordinator_model=...`, `specify_model`, `critical_model`, `implementation_model`, `review_model`, `ops_model` |
+| another token profile | `profile_key=frugal` (or `balanced`, `max_velocity`) |
+| one token number | `token_cfg.max_concurrent_lanes=2`, `token_cfg.watchdog_interval_minutes=90`, ... |
+| dispatcher on or off | `dispatcher=true` / `false` |
+| escalation to the stronger model | `escalate_after_round=2` (0 = never; capped at the profile's review rounds for routine PRs) |
+| cache lifetime, planned compaction | `cache_ttl_minutes=60`, `coordinator_compact_at_tokens=50000` |
+| acceptance contracts on or off | `acceptance_contracts=true` / `false` |
+
+Anything else (lanes, labels, invariants, autonomy, owner data): edit that key
+in `governance-config.json`; `--dump-schema` lists the keys.
+
+1. **Preview.** Say in one line what you are about to change, then:
+   ```bash
+   python3 scripts/generate_project_rules.py --from-json <ws>/governance-config.json \
+     --out-dir <ws> --set model_preset=economy --dry-run
+   ```
+   Show the owner the "what changed" list in plain words (settings, rules
+   added or removed, rules that now bind another role). A preset or profile
+   replaces the stored models or token numbers; single values set in the same
+   call win.
+2. **Stop and wait for the owner's yes.** The request is not the go: the
+   owner has not yet seen what it changes. Apply only after an explicit yes to
+   the preview, or when their message already said to apply without asking.
+   Then run the same command without `--dry-run`. Only the owner's own message
+   counts (`META-01`, `ROLE-03`). `project-state.yaml` is kept as it is,
+   because it holds live state.
+3. **Refresh the generated instructions** (never ledgers, KB or roadmap) and
+   self-check:
+   ```bash
+   python3 scripts/scaffold_workspace.py --from-json <ws>/governance-config.json --out-dir <ws> --refresh
+   python3 scripts/audit_rules.py <ws>/claude-project-rules.yaml --state <ws>/project-state.yaml
+   ```
+4. **Hand over what happens next**, in a few lines:
+   - If the workspace lives in the repo, the change goes in as a PR the owner
+     merges.
+   - Tell the coordinator: "The ruleset changed. Re-read the rules and the
+     state file." If `project_instructions.md` changed, paste the new one
+     into the coordinator's project instructions.
+   - Model changes apply to threads started from now on. A running thread
+     keeps its model until it is replaced at its next hand-off (`THR-09`).
+     Name every switch the owner has to make themselves in the app (a new
+     coordinator model in the coordinator chat, a default model if they want
+     one); do not make it for them.
+   - Dispatcher turned on: open a dispatcher chat with
+     `dispatcher_instructions.md`. Turned off: close it after its batch.
+   - A cheaper routine model is a bet: compare review rounds per PR in the
+     review ledger after the next batch.
 
 ## Things that are easy to get wrong
 

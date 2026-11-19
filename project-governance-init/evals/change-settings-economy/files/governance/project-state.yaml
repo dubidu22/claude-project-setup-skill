@@ -1,0 +1,22 @@
+# ledgerlite: volatile runtime state (separated from static rules)
+date: 2026-11-19
+project: ledgerlite
+
+active_now:
+  autonomy_horizon: "until v1.0 is finished"
+  paused: false
+  slow_down: true
+  thread_freeze: false
+  active_milestones: [v0.2]
+  owner_autonomy_message_ids: []
+  owner_open_steps: ["Create the PyPI token", "Add the staging SSH key"]   # hand steps waiting for the owner, titles only (ROLE-13)
+
+notifications_pending:
+  - "first usable build ready for personal testing"
+  - "target autonomy milestone complete"
+
+control_commands_reference:
+  pause: '"pause all threads" / "stop"'
+  slow_down: '"slow down" (finish running batches, start no new ones)'
+  freeze_new_threads: '"dont start new threads"'
+  resume: '"continue" / "continue as usual"'

@@ -1,7 +1,7 @@
 # Acceptance contract for {{project_name}}
 # Copy to plans/contract-<NNN>-<slug>.yaml (a later version: ...-v<N>.yaml), fill in, then run:
 #   python3 tools/contract_tool.py lint plans/contract-<NNN>-<slug>.yaml
-# Method: tools/acceptance-contracts.md (rules ROLE-10, PLAN-03 to PLAN-06, REV-03).
+# Method: tools/acceptance-contracts.md (rules ROLE-10, PLAN-03 to PLAN-05, REV-03).
 
 contract:
   id: C-001

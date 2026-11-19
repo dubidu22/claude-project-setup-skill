@@ -12,8 +12,8 @@ not the ruleset, the state file, `governance-config.json`, the roadmap, an
 acceptance contract, a GitHub issue, `CLAUDE.md` or any repo file. Its only output is the report, in the
 reply, or as one new file when the owner names one. Both scripts below only
 read. Fixes are proposed as exact replacement text or config changes; applying
-them is the owner's decision, through init (rules) or specify (criteria and
-roadmap).
+them is the owner's decision, through init (rules and settings) or specify
+(criteria and roadmap). The audit never runs the generator with `--set`.
 
 ## Steps
 

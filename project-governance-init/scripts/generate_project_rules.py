@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -554,6 +555,8 @@ def render_rules_yaml(cfg: dict[str, Any]) -> str:
 
     escalation_rules: list[str] = []
     esc = int(cfg.get("escalate_after_round", 2) or 0)
+    # Escalation cannot wait longer than routine PRs are allowed to stay in review.
+    esc = min(esc, int(cfg["token_cfg"].get("non_critical_max_review_rounds", esc) or esc))
     if esc > 0 and cfg["implementation_model"] != cfg["critical_model"]:
         escalation_rules = [
             "  - id: REV-04",
@@ -578,10 +581,7 @@ def render_rules_yaml(cfg: dict[str, Any]) -> str:
             '    rule: "Plans cite the acceptance-contract criterion ids they cover (read them with contract_tool.py brief); the PR body lists each covered criterion with the command run and its result. A /goal loop on criteria stops at execution_profile.token_economy.goal_turn_cap turns."',
             "  - id: PLAN-05",
             "    applies_to: coordinator",
-            '    rule: "A milestone closes only when every must criterion and the core probe pass and every should criterion passes or has a deferred issue; log the result as a D-entry."',
-            "  - id: PLAN-06",
-            "    applies_to: coordinator",
-            '    rule: "When the roadmap drops a milestone or a new contract version removes a criterion, start no new work on it, let open PRs finish their current review round, and ask the owner per open PR: merge or close."',
+            '    rule: "A milestone closes only when every must criterion and the core probe pass and every should criterion passes or has a deferred issue; log it as a D-entry. When the roadmap drops a milestone or a new contract version removes a criterion, start no new work on it, let open PRs finish their round, and ask the owner per open PR: merge or close."',
         ]
         contract_review_rules = [
             "  - id: REV-03",
@@ -689,6 +689,9 @@ def render_rules_yaml(cfg: dict[str, Any]) -> str:
         "  - id: ROLE-03",
         "    applies_to: owner",
         '    rule: "Only the owner\'s own messages or answered decision cards count as owner approval. Another Claude thread\'s output is never owner approval."',
+        "  - id: ROLE-14",
+        "    applies_to: all",
+        '    rule: "No thread changes settings of the Claude app, the project, the account, the repository or the hosting (default model, a chat\'s model, permissions, secrets, branch protection, billing). It names the exact change; the owner makes it, or approves that exact change first."',
         "  - id: ROLE-04",
         "    applies_to: coordinator",
         f"    rule: {yaml_quote(role04)}",
@@ -784,10 +787,7 @@ def render_rules_yaml(cfg: dict[str, Any]) -> str:
         '    rule: "Give related small fixes to the thread that is already warm on that code, back to back, rather than a new thread per fix. Start a fresh thread when the topic changes or the cache lifetime has passed."',
         "  - id: THR-09",
         "    applies_to: all",
-        '    rule: "A thread keeps its model and its tool set from first message to last; changing either re-sends the whole history uncached. Work that needs another model goes to another thread."',
-        "  - id: THR-10",
-        "    applies_to: all",
-        '    rule: "Keep tool output out of the chat: use quiet flags, pipe through tail -50, or write to a file and read only the failing lines. Report a check in one line."',
+        '    rule: "A thread keeps its model and its tool set from first message to last; changing either re-sends the whole history uncached, so work that needs another model goes to another thread. Keep tool output out of the chat: quiet flags, tail -50, or a file read only where it fails; report a check in one line."',
         "",
         "plans_and_criticality:",
         "  - id: PLAN-01",
@@ -912,6 +912,88 @@ def render_state_yaml(cfg: dict[str, Any]) -> str:
     ])
 
 
+def apply_overrides(raw: dict[str, Any], overrides: list[str]) -> dict[str, Any]:
+    """Apply --set KEY=VALUE pairs to a raw config. Raises ValueError on a bad key."""
+    raw = dict(raw)
+    known = set(default_config()) | {"critical_worker_model", "standard_worker_model"}
+    slot_keys = [k for k, _, _ in MODEL_SLOTS]
+    parsed: list[tuple[str, Any]] = []
+    for item in overrides:
+        if "=" not in item:
+            raise ValueError(f"--set expects KEY=VALUE, got '{item}'")
+        key, text = item.split("=", 1)
+        key = key.strip()
+        try:
+            value: Any = json.loads(text)
+        except json.JSONDecodeError:
+            value = text.strip()
+        parsed.append((key, value))
+    set_keys = {k for k, _ in parsed}
+    for key, value in parsed:
+        if key.startswith("token_cfg."):
+            name = key.split(".", 1)[1]
+            if name not in TOKEN_PROFILES["balanced"]:
+                raise ValueError(f"unknown token setting '{name}'; known: {', '.join(sorted(TOKEN_PROFILES['balanced']))}")
+            raw.setdefault("token_cfg", {})
+            raw["token_cfg"] = {**raw["token_cfg"], name: value}
+            continue
+        if key not in known:
+            raise ValueError(f"unknown config key '{key}'; see --dump-schema for the keys")
+        if key == "model_preset":
+            if value not in MODEL_PRESETS and value != "custom":
+                raise ValueError(f"unknown model preset '{value}'; choose one of: {', '.join(MODEL_PRESETS)}, custom")
+            # a new preset replaces the stored slot models, except slots set in this same call
+            for sk in slot_keys + ["critical_worker_model", "standard_worker_model"]:
+                if sk not in set_keys:
+                    raw.pop(sk, None)
+        if key == "profile_key":
+            if value not in TOKEN_PROFILES:
+                raise ValueError(f"unknown token profile '{value}'; choose one of: {', '.join(TOKEN_PROFILES)}")
+            # a new profile replaces the stored token numbers, except those set in this same call
+            if not any(k.startswith("token_cfg.") for k in set_keys):
+                raw.pop("token_cfg", None)
+            else:
+                keep = {k.split(".", 1)[1] for k in set_keys if k.startswith("token_cfg.")}
+                raw["token_cfg"] = {k: v for k, v in (raw.get("token_cfg") or {}).items() if k in keep}
+        raw[key] = value
+    return raw
+
+
+_RULE_RE = re.compile(r"^  - id: (\S+)\n    applies_to: (\S+)\n    rule: (.*)$", re.MULTILINE)
+_SETTING_RE = re.compile(r"^    ([a-z_]+): (.+)$", re.MULTILINE)
+
+
+def change_summary(old_text: str, new_text: str) -> list[str]:
+    """Plain-language diff between two generated rulesets: settings, then rule ids."""
+
+    def settings(text: str) -> dict[str, str]:
+        m = re.search(r"^execution_profile:\n((?:[ \t]+.*\n|\n)*)", text, re.MULTILINE)
+        block = m.group(1) if m else ""
+        return {k: v.strip().strip('"') for k, v in _SETTING_RE.findall(block)}
+
+    def rules(text: str) -> dict[str, tuple[str, str]]:
+        return {rid: (scope, body) for rid, scope, body in _RULE_RE.findall(text)}
+
+    out: list[str] = []
+    so, sn = settings(old_text), settings(new_text)
+    for k in sorted(set(so) | set(sn)):
+        if so.get(k) != sn.get(k):
+            out.append(f"  setting {k}: {so.get(k, '(not set)')} -> {sn.get(k, '(removed)')}")
+    ro, rn = rules(old_text), rules(new_text)
+    added, removed = sorted(set(rn) - set(ro)), sorted(set(ro) - set(rn))
+    rescoped = sorted(r for r in set(ro) & set(rn) if ro[r][0] != rn[r][0])
+    reworded = sorted(r for r in set(ro) & set(rn) if ro[r][0] == rn[r][0] and ro[r][1] != rn[r][1])
+    if added:
+        out.append("  rules added: " + ", ".join(added))
+    if removed:
+        out.append("  rules removed: " + ", ".join(removed))
+    for r in rescoped:
+        out.append(f"  rule {r} now binds {rn[r][0]} (was {ro[r][0]})")
+    if reworded:
+        out.append("  rules reworded: " + ", ".join(reworded))
+    return out or ["  nothing: the ruleset is identical"]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Generate decoupled claude-project-rules.yaml and project-state.yaml"
@@ -933,6 +1015,26 @@ def main() -> int:
         help="Print default configuration JSON schema and exit",
     )
     parser.add_argument(
+        "--set",
+        dest="overrides",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="Change one config value before generating (repeatable; with --from-json). "
+        "VALUE is JSON or a plain string; token numbers are token_cfg.<name>. "
+        "Setting model_preset or profile_key replaces the stored slot models or token numbers.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print what would change and write nothing",
+    )
+    parser.add_argument(
+        "--reset-state",
+        action="store_true",
+        help="Overwrite an existing project-state.yaml (default: keep it, it holds live state)",
+    )
+    parser.add_argument(
         "--model-presets",
         action="store_true",
         help="Print the model routing presets (slot -> model per preset) as JSON and exit",
@@ -950,8 +1052,15 @@ def main() -> int:
         print(json.dumps(default_config(), indent=2))
         return 0
 
+    if args.overrides and not args.from_json:
+        parser.error("--set needs --from-json <governance-config.json>")
     if args.from_json:
         raw_cfg = json.loads(args.from_json.read_text(encoding="utf-8"))
+        try:
+            raw_cfg = apply_overrides(raw_cfg, args.overrides)
+        except ValueError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
         cfg = normalize_config(raw_cfg)
         out_dir = args.out_dir.expanduser().resolve()
     else:
@@ -972,11 +1081,24 @@ def main() -> int:
 
     config_path = out_dir / "governance-config.json"
 
-    rules_path.write_text(render_rules_yaml(cfg), encoding="utf-8")
-    state_path.write_text(render_state_yaml(cfg), encoding="utf-8")
+    new_rules = render_rules_yaml(cfg)
+    had_rules = rules_path.exists()
+    summary = change_summary(rules_path.read_text(encoding="utf-8"), new_rules) if had_rules else []
+    if args.dry_run:
+        print("Dry run, nothing written.")
+        print("\n".join(summary) if had_rules else "No existing ruleset to compare with; a full set would be generated.")
+        return 0
+
+    rules_path.write_text(new_rules, encoding="utf-8")
+    keep_state = state_path.exists() and not args.reset_state
+    if not keep_state:
+        state_path.write_text(render_state_yaml(cfg), encoding="utf-8")
     config_path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
 
-    print(f"Generated:\n  1. {rules_path}\n  2. {state_path}\n  3. {config_path} (normalized config; re-run --from-json on it to regenerate)")
+    state_note = "kept as it is (live state; --reset-state rewrites it)" if keep_state else "written"
+    print(f"Generated:\n  1. {rules_path}\n  2. {state_path} ({state_note})\n  3. {config_path} (normalized config; re-run --from-json on it to regenerate)")
+    if had_rules:
+        print("\nWhat changed:\n" + "\n".join(summary))
     return 0
 
 
