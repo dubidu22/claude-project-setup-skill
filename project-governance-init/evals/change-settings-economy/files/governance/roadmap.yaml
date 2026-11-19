@@ -1,0 +1,9 @@
+# ledgerlite: roadmap. Order is priority. The owner decides it; a specify
+# thread edits it; the coordinator mirrors `active` milestones into project-state.yaml.
+# Check: python3 tools/contract_tool.py roadmap roadmap.yaml --plans plans
+# status: planned | active | done | dropped. A milestone turns active only with an approved contract.
+milestones:
+  - name: "v0.2"
+    goal: ""
+    status: planned
+    contract: ""

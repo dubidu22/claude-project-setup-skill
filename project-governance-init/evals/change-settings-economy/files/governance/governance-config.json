@@ -1,0 +1,85 @@
+{
+  "today": "2026-11-19",
+  "project_name": "ledgerlite",
+  "repo_slug": "rwaller/ledgerlite",
+  "is_public": false,
+  "owner_name": "Rosa Waller",
+  "owner_gh": "rwaller",
+  "timezone": "America/Chicago",
+  "local_os_shell": "macOS zsh",
+  "local_clone_path": "~/dev/ledgerlite",
+  "workspace_root": "./governance",
+  "stack_key": "python_cli_or_service",
+  "fast_checks": "lint, format check, import-linter, dependency check, fast unit tests",
+  "target_platforms": [
+    "ubuntu-latest",
+    "macos-latest"
+  ],
+  "model_preset": "balanced",
+  "coordinator_model": "Opus",
+  "specify_model": "Opus (high effort)",
+  "critical_model": "Opus (high effort)",
+  "implementation_model": "Opus (medium effort)",
+  "review_model": "Opus (medium effort)",
+  "ops_model": "Sonnet",
+  "escalate_after_round": 2,
+  "profile_key": "balanced",
+  "token_cfg": {
+    "description": "Recommended balance of velocity, quality gates, and token efficiency.",
+    "max_concurrent_lanes": 3,
+    "replace_at_compressions": 2,
+    "watchdog_interval_minutes": 60,
+    "watchdog_max_nudges": 3,
+    "non_critical_max_review_rounds": 2,
+    "critical_max_review_rounds": 4,
+    "batch_audit_mode": "light_every_batch",
+    "kb_pr_cadence": "daily",
+    "reporting_verbosity": "terse_batched",
+    "offload_heavy_checks_to_ci": true,
+    "goal_turn_cap": 30
+  },
+  "autonomy_horizon": "until v1.0 is finished",
+  "round4_hard_stop": true,
+  "owner_hand_steps": [
+    "listening or manual UX/accessibility pass",
+    "local hardware benchmark run",
+    "pushing release tags and package registry publishing",
+    "repository settings, rulesets and milestone creation"
+  ],
+  "notify_triggers": [
+    "first usable build ready for personal testing",
+    "target autonomy milestone complete"
+  ],
+  "execution_lanes": [
+    "core_pipeline",
+    "text_or_data",
+    "app_cli",
+    "docs_release"
+  ],
+  "ownership_labels": [
+    "lane:core",
+    "lane:pipeline",
+    "lane:data",
+    "lane:app",
+    "lane:cli",
+    "lane:infra",
+    "lane:docs"
+  ],
+  "lane_mapping_note": "core_pipeline owns pipeline; text_or_data owns data; app_cli owns app and cli. core is cross-cutting and critical (requires lane:infra). docs may be edited by any lane.",
+  "allow_parallel_release_branch": true,
+  "no_telemetry": true,
+  "banned_licences": [
+    "AGPL",
+    "SSPL",
+    "non-commercial",
+    "unclear"
+  ],
+  "custom_invariants": [],
+  "acceptance_contracts": true,
+  "dispatcher": true,
+  "cache_ttl_minutes": 60,
+  "coordinator_compact_at_tokens": 50000,
+  "active_milestones": [
+    "v0.2"
+  ]
+}

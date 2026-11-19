@@ -21,7 +21,7 @@ files by generate_project_rules.py) and renders the templates in
       .github/lanes.yml           label definitions (optional, --github)
 
 Usage:
-    python3 scaffold_workspace.py --from-json governance-config.json --out-dir <dir> [--github] [--force]
+    python3 scaffold_workspace.py --from-json governance-config.json --out-dir <dir> [--github] [--force | --refresh]
 
 Existing files are left alone unless --force is given, so re-running on a live
 workspace never clobbers plans or ledgers. Placeholders in templates look like
@@ -43,6 +43,8 @@ CONTRACT_TOOL = Path(__file__).resolve().parent / "contract_tool.py"
 CONTRACT_METHOD = Path(__file__).resolve().parent.parent / "references" / "acceptance-contracts.md"
 CONTRACT_TEMPLATE = Path("plans") / "contract-template.yaml"
 DISPATCHER_TEMPLATE = Path("dispatcher_instructions.md")
+# Generated from the config and never edited by threads: safe to overwrite on --refresh.
+REFRESHABLE = {"project_instructions.md", "dispatcher_instructions.md", "plans/README.md", "plans/contract-template.yaml"}
 
 LABEL_COLOURS = {
     "lane:core": "B60205",
@@ -150,6 +152,12 @@ def main() -> int:
     ap.add_argument("--out-dir", type=Path, default=Path("."), help="workspace directory to scaffold into")
     ap.add_argument("--github", action="store_true", help="also write .github/lanes.yml label definitions")
     ap.add_argument("--force", action="store_true", help="overwrite files that already exist")
+    ap.add_argument(
+        "--refresh",
+        action="store_true",
+        help="overwrite only the generated instruction and tool files (project and dispatcher instructions, "
+        "plans/README.md, plans/contract-template.yaml, tools/); ledgers, KB, roadmap and labels are left alone",
+    )
     args = ap.parse_args()
 
     if not TEMPLATE_DIR.is_dir():
@@ -189,14 +197,16 @@ def main() -> int:
             continue
         if rel == DISPATCHER_TEMPLATE and not cfg.get("dispatcher", True):
             continue
-        results.append(write(out / rel, render(tpl.read_text(encoding="utf-8"), cfg), args.force))
+        results.append(write(out / rel, render(tpl.read_text(encoding="utf-8"), cfg), args.force or (args.refresh and rel.as_posix() in REFRESHABLE)))
     if cfg.get("acceptance_contracts", True):
-        results.append(write(out / "tools" / "contract_tool.py", CONTRACT_TOOL.read_text(encoding="utf-8"), args.force))
-        results.append(write(out / "tools" / "acceptance-contracts.md", CONTRACT_METHOD.read_text(encoding="utf-8"), args.force))
+        results.append(write(out / "tools" / "contract_tool.py", CONTRACT_TOOL.read_text(encoding="utf-8"), args.force or args.refresh))
+        results.append(write(out / "tools" / "acceptance-contracts.md", CONTRACT_METHOD.read_text(encoding="utf-8"), args.force or args.refresh))
         results.append(write(out / "roadmap.yaml", roadmap_yml(cfg), args.force))
     if args.github:
         results.append(write(out / ".github" / "lanes.yml", lanes_yml(cfg), args.force))
 
+    if not cfg.get("dispatcher", True) and (out / "dispatcher_instructions.md").exists():
+        results.append("note     dispatcher_instructions.md is left over from a setup with a dispatcher; it is no longer used")
     print("\n".join(results))
     return 0
 
