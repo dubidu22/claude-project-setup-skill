@@ -14,6 +14,8 @@ It describes the system the generator encodes, not the generator itself.
 7. What the generated files contain (rule catalog)
 8. Acceptance contracts, issues and the roadmap
 9. Cache-aware habits
+10. Operating mechanics: starting threads, shared files, the watchdog
+11. Authority order, and what is enforced by what
 
 ---
 
@@ -25,12 +27,12 @@ one repo, each with a role and a narrow remit:
 | Role | Does | Never does |
 |------|------|------------|
 | **owner** (human) | sets goals, scope, milestones; performs hand steps (publishing, hardware tests, repo settings); gives sign-off | — |
-| **coordinator** (lives for the whole project, never replaced) | splits work into lane batches, spawns/replaces threads, approves plans, grants merge go, logs D-numbers; reads ledgers and PR state instead of relaying messages | writes product code; approves scope changes or acceptance contracts |
-| **dispatcher** (default on) | runs one batch at a time: spawns, watches and replaces worker threads, keeps `batch-<NNN>.md` and ledgers current, grants merge go for non-critical PRs | approves plans, critical PRs or anything touching scope |
-| **specify** (with acceptance contracts) | in its own chat: interviews the owner about a feature idea or plan change, researches and drafts the acceptance contract, groups work packages, updates the roadmap; records approval and creates issues on the owner's own yes | approves anything itself; touches rules, state, code or D-numbers |
-| **assist** | walks the owner through one hand step (accounts, hosting, keys, repository settings) in its own thread, checks the result, removes it from `owner_open_steps` | has a secret pasted into chat; decides anything |
-| **implementation** | reads KB + plan, writes tests then code inside its lane, opens PRs, answers findings with exact fix lists | merges, pushes to main, force-pushes |
-| **review** | reviews a batch's PRs in rounds, writes round reports, checks CI, squash-merges on coordinator go | authors the PR it reviews |
+| **coordinator** (lives for the whole project, never replaced) | splits work into lane batches, starts/replaces threads (or hands that to the dispatcher), approves plans, grants merge go, logs D-numbers, is the only writer of the state file; reads ledger entries and PR state instead of relaying messages | writes product code; approves scope changes or acceptance contracts |
+| **dispatcher** (default on) | runs one batch at a time: starts, watches and replaces worker threads, keeps `batch-<NNN>.md` current, reads the ledger entries, grants merge go for PRs the review thread confirmed non-critical | approves plans, critical PRs or anything touching scope; decides criticality; writes ledger entries |
+| **specify** (with acceptance contracts) | in its own chat: interviews the owner about a feature idea or plan change, researches and drafts the acceptance contract, groups work packages, updates the roadmap; shows the owner every criterion and verify step; records approval only on the owner's message that quotes the contract hash; creates issues on the owner's yes | approves anything itself; edits an approved contract; touches rules, state, code or D-numbers |
+| **assist** | walks the owner through one hand step (accounts, hosting, keys, repository settings) in its own thread, checks the result, reports the step done to the coordinator | has a secret pasted into chat; decides anything; writes the state file |
+| **implementation** | reads KB + plan, states in the plan whether the work is critical, writes tests then code inside its lane, opens PRs, writes the PR's ledger entry, answers findings with exact fix lists | merges, pushes to the default branch, force-pushes |
+| **review** | reviews a batch's PRs in rounds, decides in round 1 from the diff whether the PR is critical, writes round reports and round ledger entries, checks CI, squash-merges on go when no must-fix finding is open | authors the PR it reviews |
 | **kb** | compiles decisions into the decision-log PR on the configured cadence and self-merges it | reviews code |
 | **audit** | after a merged batch, scans the combined diff for cross-PR inconsistencies and contract touches | blocks merges |
 
@@ -38,18 +40,24 @@ Only the owner's own messages count as owner approval. Another thread's output
 never does, which is why `ROLE-03` exists: without it a coordinator can talk
 itself into "the review thread said it was fine".
 
-Every rule has an `applies_to` scope from this list (or `all`) so a thread can
-filter the ruleset to what binds it. A rule without a scope binds nobody.
+Every rule has an `applies_to` scope from this list (or `all`). A rule without
+a scope binds nobody. The generator writes one extract per thread type,
+`rules/<role>.yaml`, with the project and execution profile and only the rules
+scoped to that role or to `all`. A thread reads its extract at its start and
+after a compression, not the whole ruleset: a KB or audit thread is bound by
+about a quarter of the rules. The full file wins if the two ever differ, and
+the audit checks that they do not (A12).
 
 **Coordinator load.** The coordinator's own work is per batch (milestones, plan
 approval, D-numbers, the owner); everything per PR is traffic. Two things keep
 it small. First, by default: fix lists travel through round reports, threads
-post one line per hand-off, and the coordinator reads ledgers and PR state
+post one line per hand-off, and the coordinator reads ledger entries and PR state
 instead of messages (`ROLE-04`, `THR-04`). Second, opt-in with `dispatcher:
 true`: a dispatcher takes the per-PR operations (`ROLE-11`, `LANE-02`,
-`THR-01`, `THR-03`). Because all of its state is in `batch-<NNN>.md` and the
-ledgers, it is replaced at its first compression (`THR-05`). The dispatcher is
-on by default; turn it off only for a small project with one or two lanes.
+`THR-01`, `THR-03`). Because all of its state is in `batch-<NNN>.md`, it is
+replaced after one batch or at its first compression (`THR-05`). The
+dispatcher is on by default; turn it off only for a small project with one or
+two lanes.
 
 **Owner-facing work leaves the coordinator too.** The coordinator answers
 short questions itself, but a hand step the owner wants to carry out (account,
@@ -57,7 +65,8 @@ hosting, SSH or repository settings, a deploy checklist) becomes an assist
 thread (`ROLE-12`, `ROLE-13`): the walkthrough, the troubleshooting and the
 screenshots would otherwise sit in the coordinator's context for the rest of
 the project. Open hand steps are kept as titles in `owner_open_steps` in the
-state file. Because work now starts in threads the owner may not be looking
+state file; the coordinator is that file's only writer, so the assist thread
+reports a finished step and the coordinator removes it. Because work now starts in threads the owner may not be looking
 at, the coordinator announces every thread the owner has to see or answer in,
 and says when one is waiting for them (`THR-12`).
 
@@ -68,7 +77,7 @@ exact change and the owner makes it (`ROLE-14`). Model routing lives in the
 rules file; which model a given chat runs on is switched by the owner.
 
 **The coordinator is the one thread that is never replaced** (`THR-02`,
-`THR-06`). It lives for the whole project and stays small: it reads summaries, ledgers and state files only, hands every
+`THR-06`). It lives for the whole project and stays small: it reads summaries, ledger entries and state files only, hands every
 lookup to a worker, and writes what it knows to `project-state.yaml` and the
 decision log at each hand-off, so that a compression, if one happens anyway,
 loses nothing. Every other thread is disposable by design.
@@ -87,7 +96,9 @@ Two different things that are easy to conflate:
 The `lane_mapping_note` records the mapping in prose so a new thread can
 reason about it.
 
-Two labels are special:
+Two labels are special where a project has them (the presets do; `LANE-03` is
+written from the labels that exist, so a project without them gets a plain
+"one PR at a time for shared files" rule instead):
 - `lane:core` marks shared, cross-cutting files. Touching them is critical and
   requires `lane:infra`, which acts as a single-thread lock: while an infra PR
   is open, no other lane touches core.
@@ -96,40 +107,71 @@ Two labels are special:
 
 ## 3. Criticality and review rounds
 
-A change is **critical** when it touches layer contracts, core data structures,
-KB process/architecture docs, golden files, packaging/release/CI, safety
-mechanisms, licences, deletion paths or network calls, or carries `risk:high`.
-Critical work gets: coordinator plan approval before coding, review on the
-stronger model, exact fix lists, issues for every deferred finding, and the
-full multi-platform CI matrix on its final round.
+A change is **critical** when it touches one of the project's
+`critical_areas` or carries `risk:high` (`CRIT-01`). The default areas are
+generic: layer contracts, core data structures, KB process/architecture docs,
+packaging/release/CI, safety mechanisms, licences, network calls. A project
+adds its own (golden files, deletion paths, a payment module).
+Critical work gets: coordinator plan approval before coding, implementation
+and review on the stronger model, exact fix lists, issues for every deferred
+finding, and the full multi-platform CI matrix on its final round.
+
+**Who decides.** The author states it in the plan. The review thread decides
+it again in round 1, from the diff and whatever the plan says, and records
+`critical: yes|no` in the round report and the round's ledger entry
+(`CRIT-03`); in doubt it is critical. A PR found critical without an approved
+plan stops for the coordinator. Where `critical_paths` is set, CI labels PRs
+touching those paths `risk:high` and no thread removes that label. This
+matters most with a dispatcher: it runs on the cheapest model and grants
+merge go only for PRs the review thread confirmed non-critical, so the
+classification never rests on the dispatcher or on the author alone.
 
 Reviews run in **rounds**. Each round produces a report (head SHA, verdict,
 numbered findings B/M must-fix, S should-fix, N note), and the author answers
 each finding as fixed-with-proof, deferred-with-issue, or declined-with-reason.
-Non-critical PRs stop after `non_critical_max_review_rounds` and defer the
-rest to issues. Critical PRs stop after round 4 and **wait for the owner**:
-four rounds without convergence means the thread pair is stuck, and burning
-more tokens on it is the one thing that will not help.
+
+**What happens when the rounds run out** (`REV-01`, `REV-04`, `MRG-01`):
+
+- Nothing merges with an open must-fix finding. Merge go requires the latest
+  round to show none.
+- A non-critical PR runs up to `non_critical_max_review_rounds`. Should-fix
+  leftovers are then deferred to issues. Must-fix findings are never deferred.
+- If routine implementation runs on a weaker model than critical work,
+  `REV-04` comes first: a PR with must-fix findings after
+  `escalate_after_round` goes to a fresh thread on the critical-work model
+  and gets `rounds_after_escalation` more rounds. Still open after that, or
+  no escalation configured: the PR stops for the coordinator.
+- A critical PR runs up to `critical_max_review_rounds` (4 by default), then
+  stops and **waits for the owner**: that many rounds without convergence
+  means the thread pair is stuck, and burning more tokens on it is the one
+  thing that will not help. The round is a setting; the stop is not.
 
 ## 4. Context compression, replacement and the watchdog
 
 Long chats get compressed; after compression a thread remembers less than it
-thinks it does. `replace_at_compressions` says how many compressions a worker
-thread may survive before it is retired and a fresh one is briefed from the KB. The
+thinks it does, and it does not reliably know how often it was compressed.
+Replacement therefore rests on what the files show (`THR-02`): a worker
+thread is retired once it has handled `replace_after_prs` PRs, counted from
+its ledger entries (`ledger_tool.py stats`). `replace_at_compressions` stays
+as a second trigger for a thread that does notice a compression. The
 replacement happens **at the next hand-off**, after the current atomic step
 (a review round, a fix commit, a KB PR) completes. Replacing mid-step loses the
 step's working state and produces half-written reports or orphaned branches.
 
-The **watchdog** is the coordinator's (or dispatcher's) timer: whenever a thread
-owes output, it looks at the thread's last commit or file change after
-`watchdog_interval_minutes` and acts only when nothing moved: a nudge while the
-cache is warm, a fresh thread from the files once it is not; after
-`watchdog_max_nudges` without progress it replaces the thread or escalates.
-Shorter intervals cost coordinator tokens; longer ones cost wall-clock time.
+The **watchdog** (`THR-03`) is a check, not a timer: no thread is woken by a
+clock. Each time the dispatcher (or the coordinator, without one) is active,
+it takes the time from a tool and looks at the newest commit or file change
+of every thread that owes output. Only when nothing moved for
+`watchdog_interval_minutes` does it act: a nudge while the cache is warm, a
+fresh thread from the files once it is not; after `watchdog_max_nudges`
+without progress it replaces the thread or escalates. If stalled threads
+should be noticed while nobody is active, the owner sets up a scheduled task
+that sends "watchdog check"; without one the interval is a lower bound.
+Shorter intervals cost tokens; longer ones cost wall-clock time.
 
-**Fitness check**: before a thread receives a second batch it reports its
-compression count, current plan and open items from memory. A thread that
-cannot do this is replaced rather than trusted.
+**Fitness check** (`THR-01`): before a thread receives a second batch it
+states its current plan and open items from memory, and the answer is
+compared with its plan file and ledger entries. A mismatch means replacement.
 
 ## 5. Model routing versus token economy
 
@@ -155,8 +197,8 @@ strengths:
 
 Presets (`economy`, `balanced`, `max`) fill the slots and every slot can be
 changed; names carry no version numbers so they do not go stale. A cheaper
-routine model is a bet that it does not need more review rounds; the review
-ledger's rounds per PR is the number to watch. When routine implementation is
+routine model is a bet that it does not need more review rounds; rounds per
+PR (`ledger_tool.py stats`) is the number to watch. When routine implementation is
 weaker than critical work, `REV-04` moves a PR that still has must-fix
 findings after `escalate_after_round` rounds to a fresh thread on the
 critical-work model. Models are never switched inside a thread (`THR-09`).
@@ -166,11 +208,11 @@ profile with strong models on critical paths is cheaper *and* safer than a
 velocity profile with weak models, because review rounds on critical PRs are
 where bad models cost the most.
 
-| Profile | lanes | replace@ | watchdog | NC rounds | audit | KB PRs | verbosity |
+| Profile | lanes | replace after PRs / compressions | watchdog | NC rounds | audit | KB PRs | verbosity |
 |---------|-------|----------|----------|-----------|-------|--------|-----------|
-| frugal | 2 | 1 | 120 min | 1 | critical_only | per milestone/batch | ultra_terse |
-| balanced | 3 | 2 | 60 min | 2 | light_every_batch | daily | terse_batched |
-| max_velocity | 3 | 2 | 30 min | 2 | full_every_batch | daily | standard |
+| frugal | 2 | 2 / 1 | 120 min | 1 | critical_only | per milestone/batch | ultra_terse |
+| balanced | 3 | 3 / 2 | 60 min | 2 | light_every_batch | daily | terse_batched |
+| max_velocity | 3 | 4 / 2 | 30 min | 2 | full_every_batch | daily | standard |
 
 `goal_turn_cap` (20 / 30 / 40) bounds a `/goal` loop on contract criteria.
 `cache_ttl_minutes` (60 or 5) is not part of a profile; it follows from how
@@ -202,9 +244,11 @@ D-001. The invariants are the things that, when violated, caused real damage:
 4. **Atomic thread replacement.** A thread that hits `replace_at_compressions`
    finishes its current atomic step and is replaced at the next hand-off,
    never mid-step. This includes the KB thread. (`THR-02`.)
-5. **Round-4 hard stop.** A critical PR that has not converged after round 4
-   stops and waits for owner sign-off; the coordinator may not approve it
-   alone. (`REV-01`, `AUTO-01/02`.)
+5. **Hard stop at the last critical round.** A critical PR that has not
+   converged after `critical_max_review_rounds` (round 4 by default) stops and
+   waits for owner sign-off; the coordinator may not approve it alone. The
+   round can be set; the stop cannot be switched off, and the audit reports a
+   ruleset without it. (`REV-01`, `AUTO-01/02`.)
 
 ## 7. What the generated files contain
 
@@ -212,28 +256,41 @@ D-001. The invariants are the things that, when violated, caused real damage:
 
 | Section | Ids | Holds |
 |---------|-----|-------|
-| header | — | version, date, project, repository, owner, timezone, `authority` precedence list |
-| `project_profile` | — | stack preset, target platforms, fast checks, local env, lanes, labels, mapping note, `workspace_root`, `state_file`, `plans_dir` |
-| `execution_profile` | — | `model_routing` (6 slots) and `token_economy` (profile name + 10 numbers/enums) |
+| header | — | `version` (minor number goes up whenever a regeneration changes the content), `date` (of the last generation), project, repository, owner, timezone, `authority` precedence list (section 11) |
+| `project_profile` | — | stack preset, environment, target platforms, fast checks, local env, lanes, labels, mapping note, `critical_paths`, `workspace_root`, `state_file`, `plans_dir`, `rules_by_role`, and for an in-repo workspace `default_branch` and `governance_branch` |
+| `execution_profile` | — | `model_routing` (6 slots) and `token_economy` (profile name plus numbers and enums) |
 | `meta` | META-01..02 | ruleset edits are critical; state lives elsewhere |
 | `roles` | ROLE-01..14 | one rule per role, plus owner hand steps and the approval rule; ROLE-10 (specify) and ROLE-11 (dispatcher) only when enabled |
 | `autonomy` | AUTO-01..03 | horizon, what waits for the owner, working ahead |
-| `lanes` | LANE-01..04 | batching, concurrency cap, ownership + infra lock, release-branch exception |
-| `threads_and_watchdog` | THR-01..12 | onboarding + fitness check, atomic replacement, watchdog, where plans/reports go |
-| `plans_and_criticality` | PLAN-01..05, CRIT-01..02 | plan-before-code, acceptance contracts (PLAN-03..05, when `acceptance_contracts` is on), what is critical, what critical requires |
-| `pull_requests_and_reviews` | PR-01..03, REV-01..04, MRG-01 | title format, CI-before-review, branch freeze, round caps, report format, criterion proof (REV-03), merge protocol |
+| `lanes` | LANE-01..04 | batching, concurrency cap, ownership (written from the labels that exist), release-branch exception |
+| `threads_and_watchdog` | THR-01..13 | onboarding from the extract + fitness check, replacement, watchdog, one writer per file, how threads are started (THR-10), planned compaction (THR-11, Claude Code only), the governance branch (THR-13, in-repo only) |
+| `plans_and_criticality` | PLAN-01..05, CRIT-01..03 | plan-before-code, acceptance contracts (PLAN-03..05, when `acceptance_contracts` is on), what is critical, what critical requires, who decides it |
+| `pull_requests_and_reviews` | PR-01..03, REV-01..04, MRG-01 | title format, CI-before-review, branch freeze, round caps and the hard stop, report format, criterion proof (REV-03), escalation by model (REV-04), merge protocol with "no open must-fix finding" |
 | `testing_and_ci` | TST-01..02, CI-01 | tests first, never weaken tests, fast vs full matrix |
-| `github_kb_and_release` | GH-01, KB-01, REL-01 | issues same day, decision logging, release branching |
-| `hard_invariants_and_owner_prefs` | INV-01.., PREF-01 | licence gate, layer boundaries, telemetry ban, custom invariants, owner formatting prefs |
+| `github_kb_and_release` | GH-01, KB-01, REL-01 | issues same day, decision logging with the owner's message quoted, release branching |
+| `hard_invariants_and_owner_prefs` | INV-01.., PREF-01 | licence gate; then, each only if configured: layer-boundary check, telemetry ban, custom invariants; owner timezone and formatting wishes |
 
-`project-state.yaml` (volatile, edited by the coordinator as things happen):
+Nothing project-specific is built in. What used to be written into every
+ruleset is now an option: `owner_prefs` (formatting wishes), `critical_areas`
+(what counts as critical), `local_ui_loopback_only`, `github_rest_only`,
+`layer_boundary_check`.
+
+`rules/<role>.yaml`: one extract per thread type (section 1), regenerated
+with the ruleset and never edited.
+
+`project-state.yaml` (volatile; the coordinator is its only writer):
 `active_now` (autonomy horizon, paused / slow_down / thread_freeze flags,
-active milestones, owner autonomy message ids), `notifications_pending`, and a
+active milestones, owner autonomy message ids, open hand steps),
+`approved_contracts` (one line per picked-up contract version with its
+D-number and hash) and `closed_milestones`, `notifications_pending`, and a
 `control_commands_reference` listing the phrases the owner can type.
 
-`governance-config.json` is the normalized input; re-running the generator on
-it reproduces both YAML files byte-for-byte (except `date`), which is how an
-audit can diff "what the generator would emit" against "what is there now".
+`governance-config.json` is the normalized input. Re-running the generator on
+it reproduces the ruleset byte for byte except for `date`, which is always
+the day of the run, and `version`, which goes up when the content changed.
+That is how an audit can diff "what the generator would emit" against "what
+is there now". Every value in it is type-checked, every free-text value is
+quoted in the YAML, and the generator parses its own output before saving it.
 
 ## 8. Acceptance contracts, issues and the roadmap
 
@@ -243,8 +300,12 @@ the milestone is done, in terms the owner approved before any code exists. With
 door: the owner gives a specify thread a feature idea or a plan change, and it
 returns a contract version, work packages (one GitHub issue each, generated
 from the contract) and a roadmap update (`ROLE-10`). Only the owner approves,
-and `approval.hash` freezes the criteria. The coordinator picks the contract
-up, logs the D-number and batches the packages (`PLAN-03`); plans and PRs cite
+after seeing every criterion and verify step, by quoting the contract's hash.
+The coordinator picks the contract up, records its id, version, D-number and
+hash in the state file and batches the packages (`PLAN-03`). From then on
+`contract_tool.py` compares the contract with that record, so an edit after
+approval is caught even if the hash inside the contract was recomputed
+(section 11 says what this does and does not guarantee). Plans and PRs cite
 criterion ids with proof (`PLAN-04`); reviewers confirm the claims, reading the
 diff and the contract before the author's framing (`REV-03`); the coordinator
 closes the milestone when every must criterion and the core probe pass
@@ -292,21 +353,122 @@ long task costs more than proportionally: every turn re-reads a growing
 history, a compaction or a wait past the cache lifetime becomes likelier, and
 the diff takes more review rounds. The unit to aim for is a work package: one
 thread, one PR, one review round (`PLAN-04`), about six criteria at most as a
-starting point. The study did not measure task size; the ledgers do, through
+starting point. The study did not measure task size; the ledger does (`ledger_tool.py stats`), through
 compactions per PR and review rounds per PR.
 
 **The coordinator is the exception that pays.** It is never replaced, so every
 wake-up after the cache lifetime re-sends its whole context. That cost grows
 with its context and with the number of wake-ups, which is why `THR-06` keeps
 it small and why decisions for the owner and reports from the dispatcher are
-batched. It also compacts on purpose rather than by accident: at a pause and
-at the end of each batch it writes state and, above
-`coordinator_compact_at_tokens` (default 50,000; 0 turns this off), hands the
-owner the `/compact Keep: ...` line to paste while the cache is still warm
-(`THR-11`). Compacting before a wait cost 2.5x a fresh session in the study,
-after it 9.7x. The owner types the command; nothing documented lets the
-coordinator run it itself, and it exists in Claude Code only. As a safety net,
+batched. In Claude Code it also compacts on purpose rather than by accident:
+at a pause and at the end of every batch
+(`coordinator_compact_every_batches`, default 1; 0 turns this off) it writes
+state and hands the owner the `/compact Keep: ...` line to paste while the
+cache is still warm (`THR-11`). The trigger is the batch end, which the batch
+file shows, not the coordinator's own estimate of its context size, which it
+cannot measure. Compacting before a wait cost 2.5x a fresh session in the
+study, after it 9.7x. The owner types the command; nothing documented lets
+the coordinator run it itself. `/compact` exists in Claude Code only, so a
+project whose coordinator lives in a claude.ai Project gets no `THR-11`;
+there the coordinator stays small by `THR-06` alone. As a safety net,
 Claude Code's `idleCompaction` setting can compact a long idle conversation on
 the one-hour cache shortly before the cache expires; per the study it only
 applies above 200,000 tokens of context, so a small coordinator will not
 trigger it.
+
+## 10. Operating mechanics: starting threads, shared files, the watchdog
+
+Rules only work if a thread can actually do and see what they ask. This
+section says what each mechanism rests on. It differs by `environment`.
+
+**Starting a thread and setting its model (`THR-10`).** A thread that has a
+tool for opening another thread or session uses it and sets the model there.
+A thread that has no such tool, or whose tool cannot set the model, writes a
+starter block (role, model from `model_routing`, the extract to read, the
+first task) and the owner opens the chat on that model and pastes it. Which of
+the two applies depends on the tools the thread was given, not on the
+ruleset, so the rule covers both. A new thread's first line names its role
+and, if it can see it, its model; nobody assumes a model that was not
+confirmed.
+
+| | `claude_ai_project` (workspace `/mnt/project-files`) | `claude_code` (workspace in the repo) |
+|---|---|---|
+| Thread | a chat in the Project | a Claude Code session or subagent |
+| Model | chosen in the chat's model picker, by whoever opens the chat | set when the session starts (in the CLI: `claude --model <name>`) or by the tool that starts it |
+| Shared files | the Project's files; one writer per file | a git branch (below) |
+| Planned compaction | not available: no `THR-11` | `/compact`, typed by the owner (`THR-11`) |
+
+**Shared files (`THR-04`, `THR-13`).** Every file has one writer. A thread
+writes its own plan, its own round reports and its own ledger entries; the
+state file is the coordinator's; the decision log is the KB thread's; the
+roadmap and contracts are specify's; the batch file is the dispatcher's once
+the coordinator has composed it. Because the ledger is one small file per PR
+and per round (`ledger/prs/`, `ledger/rounds/`) instead of shared tables, two
+threads never edit the same file, and `ledger_tool.py` prints the tables.
+
+In a repo the files also need a place in git, since implementation threads
+may not push to the default branch:
+
+- Working files (plans, round reports, ledger entries, batch files, the state
+  file) are committed on `governance_branch` by their writer: pull with
+  rebase, commit, push; never force-push; never on a product branch. One
+  writer per file means these pushes do not conflict in content.
+- The ruleset, the config, acceptance contracts, the roadmap and the KB
+  change on the default branch by pull request only. With the CODEOWNERS
+  lines from `github-setup/` and code-owner review required, the owner's
+  review is what lets a contract or a ruleset change in.
+- After such a merge, the dispatcher (or the coordinator) merges the default
+  branch into `governance_branch`, so every thread reads one consistent tree.
+
+**The watchdog and the clock (`THR-03`).** See section 4: it is a check that
+runs when a thread is active, with the time taken from a tool. A guaranteed
+interval needs a scheduled task, which only the owner can set up.
+
+**What a thread cannot observe, and what replaces it.**
+
+| A thread cannot reliably know | The rules use instead |
+|---|---|
+| how often it was compressed | PRs handled, from ledger entries (`THR-02`) |
+| how large its context is | batch ends, from the batch file (`THR-11`) |
+| what time it is | a tool, commit timestamps, file dates (`THR-03`) |
+| which model another thread runs on | that thread's first line; the owner's confirmation (`THR-10`) |
+| whether another thread's claim is true | files: plan, round report, ledger entry, CI (`THR-01`, `REV-03`) |
+
+## 11. Authority order, and what is enforced by what
+
+When sources conflict, the first of these wins (`authority` in the ruleset):
+
+1. **The owner's newest message on the point.** The owner may override any
+   Claude-decided entry at any time (`ROLE-01`), so an older decision-log
+   entry never outranks what the owner just said. If the message contradicts
+   the ruleset or an approved acceptance contract, it is not applied
+   silently: it starts the change (init for the ruleset, specify for a
+   contract), because both are frozen for threads.
+2. **The ruleset** and the project instructions generated from it.
+3. **Approved acceptance contracts.**
+4. **The decision log**, newest entry first. Decision-log PRs are merged by
+   the KB thread without review, so an entry that records an owner decision
+   must quote the owner's message and its date (`KB-01`); without the quote
+   it ranks as a Claude decision.
+5. Decisions made in session that are not yet in a KB PR.
+6. Project memory, then the repository's `CLAUDE.md`.
+
+Be exact, when explaining the system, about which guarantees are enforced by
+a tool and which rest on threads following the rules:
+
+| Guarantee | Enforced by |
+|---|---|
+| Config values have the right type; the YAML parses | the generator (refuses, exit 2 or 3) |
+| A fresh ruleset is consistent; the hard stop exists; extracts match | `audit_rules.py` |
+| An approved contract was not edited afterwards | `contract_tool.py lint` and `goal`: the contract's hash, the owner's quoted message and the coordinator's pickup record must agree |
+| Only the owner approves a contract or a ruleset change | in a repo: CODEOWNERS plus required code-owner review on the default branch, once the owner has set them up. Elsewhere: by rule only (`ROLE-03`) |
+| Labels and milestones exist before issues are created; no duplicate issues | `contract_tool.py issues --preflight` and `record-issue` |
+| No merge with an open must-fix finding; criticality confirmed by the reviewer | by rule (`MRG-01`, `CRIT-03`), visible afterwards in the ledger (`ledger_tool.py check`) |
+| Round caps, the hard stop, replacement, the watchdog | by rule; visible afterwards in round reports and ledger entries |
+
+What remains open: in a claude.ai Project nothing technical stops a thread
+from writing any file, so a thread that edits a contract, its hash and the
+pickup record together is caught only by the owner's quoted message and by
+whoever reads the files. The design makes a silent change take several
+coordinated edits in files owned by other roles; it does not make it
+impossible. The audit exists to look.

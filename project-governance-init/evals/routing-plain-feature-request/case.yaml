@@ -1,0 +1,10 @@
+schema_version: "1.1"
+name: routing-plain-feature-request
+context:
+  scaffold_script: place-files.sh
+expected_outcome: |
+  The repository has no governance (no ruleset, roadmap or contracts) and the user asks for an ordinary small
+  feature. The assistant treats it as a normal coding task: it adds the --quiet flag to
+  tallybook/src/tallybook/cli.py (and ideally a test). It does not start a specify interview, does not research
+  acceptance criteria, writes no acceptance contract, plans folder, roadmap or ruleset, and does not propose
+  setting up multi-thread governance as a precondition.

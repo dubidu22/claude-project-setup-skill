@@ -15,6 +15,7 @@ Usage:
     python3 audit_rules.py claude-project-rules.yaml --state project-state.yaml
     python3 audit_rules.py claude-project-rules.yaml --json      # machine-readable
     python3 audit_rules.py claude-project-rules.yaml --strict    # exit 1 on WARN too
+    python3 audit_rules.py claude-project-rules.yaml --extracts rules   # per-role extracts (default: ./rules next to the file)
 
 Exit code: 0 clean or only WARN/INFO, 1 when any ERROR (or WARN with --strict),
 2 when the file cannot be read or parsed.
@@ -43,6 +44,9 @@ VOLATILE_KEYS = {
     "notifications_pending",
     "owner_autonomy_message_ids",
     "current_batch",
+    "approved_contracts",
+    "closed_milestones",
+    "owner_open_steps",
     "active_threads",
     "pending_notifications",
 }
@@ -68,8 +72,15 @@ REQUIRED_TOKEN_KEYS = {
 }
 LEGACY_ROUTING_KEYS = {"coordinator", "implementation_and_critical_review", "standard_review_audit_and_kb"}
 REQUIRED_ROUTING_KEYS = {"coordinator", "specify", "critical_work", "implementation", "review_kb_audit", "operations"}
+NUMERIC_TOKEN_KEYS = {
+    "max_concurrent_lanes", "replace_at_compressions", "replace_after_prs", "watchdog_interval_minutes",
+    "watchdog_max_nudges", "non_critical_max_review_rounds", "critical_max_review_rounds", "rounds_after_escalation",
+    "goal_turn_cap", "cache_ttl_minutes", "coordinator_compact_at_tokens", "coordinator_compact_every_batches",
+}
 LONG_RULE_CHARS = 450
-MANY_RULES = 60
+# What one thread reads at its start is its role's rules plus the rules for all, so that is what is counted.
+MANY_RULES_PER_ROLE = 40
+MANY_RULES_TOTAL = 90
 
 
 @dataclass
@@ -144,6 +155,78 @@ def rules_from_data(data: dict[str, Any], text: str) -> list[Rule]:
     return rules
 
 
+def strip_comment(line: str) -> str:
+    """Remove a trailing YAML comment. A '#' inside quotes is text, not a comment."""
+    quote = ""
+    i = 0
+    while i < len(line):
+        ch = line[i]
+        if quote:
+            if ch == "\\" and quote == '"':
+                i += 2
+                continue
+            if ch == quote:
+                quote = ""
+        elif ch in "\"'":
+            quote = ch
+        elif ch == "#" and (i == 0 or line[i - 1] in " \t"):
+            return line[:i].rstrip()
+        i += 1
+    return line.rstrip()
+
+
+def unquote(v: str) -> str:
+    """Value of a plain, single-quoted or double-quoted YAML scalar."""
+    v = v.strip()
+    if len(v) >= 2 and v[0] == v[-1] == '"':
+        out, i, body = [], 0, v[1:-1]
+        escapes = {"n": "\n", "t": "\t", '"': '"', "\\": "\\", "/": "/"}
+        while i < len(body):
+            if body[i] == "\\" and i + 1 < len(body):
+                nxt = body[i + 1]
+                if nxt == "x" and i + 3 < len(body):
+                    try:
+                        out.append(chr(int(body[i + 2:i + 4], 16)))
+                        i += 4
+                        continue
+                    except ValueError:
+                        pass
+                out.append(escapes.get(nxt, nxt))
+                i += 2
+            else:
+                out.append(body[i])
+                i += 1
+        return "".join(out)
+    if len(v) >= 2 and v[0] == v[-1] == "'":
+        return v[1:-1].replace("''", "'")
+    return v
+
+
+def split_inline(body: str) -> list[str]:
+    """Split the inside of an inline list on commas that are outside quotes."""
+    items, cur, quote, i = [], [], "", 0
+    while i < len(body):
+        ch = body[i]
+        if quote:
+            cur.append(ch)
+            if ch == "\\" and quote == '"' and i + 1 < len(body):
+                cur.append(body[i + 1])
+                i += 1
+            elif ch == quote:
+                quote = ""
+        elif ch in "\"'":
+            quote = ch
+            cur.append(ch)
+        elif ch == ",":
+            items.append("".join(cur))
+            cur = []
+        else:
+            cur.append(ch)
+        i += 1
+    items.append("".join(cur))
+    return [x.strip() for x in items if x.strip()]
+
+
 def fallback_parse(text: str) -> tuple[dict[str, Any], list[Rule]]:
     """Very small reader for the generator's flat layout when PyYAML is absent."""
     data: dict[str, Any] = {}
@@ -152,23 +235,35 @@ def fallback_parse(text: str) -> tuple[dict[str, Any], list[Rule]]:
     current: Rule | None = None
     stack: list[tuple[int, str]] = []  # (indent, key) for nested scalar maps
 
-    def strip_q(v: str) -> str:
+    def strip_q(v: str) -> Any:
         v = v.strip()
-        if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
-            return v[1:-1].replace('\\"', '"')
-        return v
+        if v in ("true", "false"):
+            return v == "true"
+        return unquote(v)
+
+    def inline(val: str) -> list[str]:
+        return [unquote(x) for x in split_inline(val[1:-1])]
 
     for i, raw in enumerate(text.splitlines(), 1):
-        line = raw.split(" #", 1)[0].rstrip() if not raw.lstrip().startswith("#") else ""
+        line = strip_comment(raw)
         if not line.strip():
             continue
         indent = len(line) - len(line.lstrip())
         m_item = re.match(r"\s*-\s*id:\s*(.+)$", line)
         if m_item:
-            current = Rule(id=strip_q(m_item.group(1)), applies_to=None, text="", section=section, line=i)
+            current = Rule(id=unquote(m_item.group(1)), applies_to=None, text="", section=section, line=i)
             rules.append(current)
             continue
         m_kv = re.match(r"\s*([A-Za-z_][\w-]*):\s*(.*)$", line)
+        m_li = re.match(r"\s*-\s+(.+)$", line)
+        if m_li and not m_kv and current is None and section and data.get(section) in ({}, []) or (
+            m_li and not m_kv and current is None and isinstance(data.get(section), list)
+        ):
+            # a block list of plain values under a top-level key, e.g. `authority:`
+            if not isinstance(data.get(section), list):
+                data[section] = []
+            data[section].append(strip_q(m_li.group(1)))
+            continue
         if not m_kv:
             continue
         key, val = m_kv.group(1), m_kv.group(2)
@@ -179,15 +274,15 @@ def fallback_parse(text: str) -> tuple[dict[str, Any], list[Rule]]:
             if val == "":
                 data[key] = {}
             elif val.startswith("[") and val.endswith("]"):
-                data[key] = [strip_q(x) for x in val[1:-1].split(",") if x.strip()]
+                data[key] = inline(val)
             else:
                 data[key] = strip_q(val)
             continue
         if current is not None and indent >= 4:
             if key == "applies_to":
-                current.applies_to = strip_q(val)
+                current.applies_to = unquote(val)
             elif key == "rule":
-                current.text = strip_q(val)
+                current.text = unquote(val)
             elif key not in {"values", "note"}:
                 current.extra_keys.append(key)
             continue
@@ -202,10 +297,10 @@ def fallback_parse(text: str) -> tuple[dict[str, Any], list[Rule]]:
                 node[key] = {}
                 stack.append((indent, key))
             elif val.startswith("[") and val.endswith("]"):
-                node[key] = [strip_q(x) for x in val[1:-1].split(",") if x.strip()]
+                node[key] = inline(val)
             else:
                 v = strip_q(val)
-                node[key] = int(v) if re.fullmatch(r"-?\d+", v) else v
+                node[key] = int(v) if isinstance(v, str) and re.fullmatch(r"-?\d+", v) and val.strip() == v else v
     return data, rules
 
 
@@ -229,7 +324,8 @@ def to_int(v: Any) -> int | None:
         return None
 
 
-def run_checks(data: dict[str, Any], rules: list[Rule], raw_text: str, state_text: str | None) -> list[Finding]:
+def run_checks(data: dict[str, Any], rules: list[Rule], raw_text: str, state_text: str | None,
+               extracts: dict[str, str] | None = None) -> list[Finding]:
     f: list[Finding] = []
 
     # --- A01 header fields ---
@@ -239,6 +335,18 @@ def run_checks(data: dict[str, Any], rules: list[Rule], raw_text: str, state_tex
     date = data.get("date")
     if date is not None and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(date)):
         f.append(Finding("A01", "WARN", f"`date` should be YYYY-MM-DD, got {date!r}", "header"))
+
+    # --- A13 authority order ---
+    authority = data.get("authority")
+    if isinstance(authority, list):
+        order = [str(x) for x in authority]
+        pos = {name: i for i, name in enumerate(order)}
+        if "owner_messages" in pos and "kb_decision_log" in pos and pos["kb_decision_log"] < pos["owner_messages"]:
+            f.append(Finding("A13", "WARN", "`authority` ranks the decision log above the owner's messages; the owner's newest message on a point must outrank older D-entries (ROLE-01)", "authority"))
+        if not any("ruleset" in name for name in order):
+            f.append(Finding("A13", "WARN", "`authority` does not list the ruleset itself; say where it ranks", "authority"))
+        if any(re.search(r"acceptance[- ]contract", r.text, re.I) for r in rules) and not any("contract" in name for name in order):
+            f.append(Finding("A13", "WARN", "`authority` does not list approved acceptance contracts although the rules use them", "authority"))
 
     # --- A02 rule ids unique, present, well-formed ---
     seen: dict[str, Rule] = {}
@@ -310,6 +418,13 @@ def run_checks(data: dict[str, Any], rules: list[Rule], raw_text: str, state_tex
         missing = sorted(REQUIRED_TOKEN_KEYS - set(token if isinstance(token, dict) else {}))
         f.append(Finding("A05", "WARN", f"token_economy missing: {', '.join(missing) or 'whole section'}", "execution_profile"))
     if isinstance(token, dict):
+        for key in sorted(NUMERIC_TOKEN_KEYS & set(token)):
+            v = token[key]
+            if isinstance(v, bool) or to_int(v) is None or str(v).strip() != str(to_int(v)):
+                f.append(Finding("A05", "ERROR", f"{key} must be a whole number, got {v!r}; threads cannot act on it", "execution_profile"))
+        rap = to_int(token.get("replace_after_prs"))
+        if rap is not None and rap < 1:
+            f.append(Finding("A05", "ERROR", "replace_after_prs must be at least 1", "execution_profile"))
         mcl = to_int(token.get("max_concurrent_lanes"))
         rac = to_int(token.get("replace_at_compressions"))
         wim = to_int(token.get("watchdog_interval_minutes"))
@@ -333,10 +448,22 @@ def run_checks(data: dict[str, Any], rules: list[Rule], raw_text: str, state_tex
             f.append(Finding("A05", "WARN", "rules refer to cache_ttl_minutes but token_economy does not set it", "execution_profile"))
         if ncr is not None and ccr is not None and ncr > ccr:
             f.append(Finding("A05", "ERROR", f"non_critical_max_review_rounds={ncr} exceeds critical_max_review_rounds={ccr}", "execution_profile"))
-        round4_rules = [r for r in rules if re.search(r"round\s*4|fourth round|round-4", r.text, re.I)]
-        if ccr is not None and ccr != 4 and round4_rules:
-            ids = ", ".join(r.id or "?" for r in round4_rules)
-            f.append(Finding("A05", "ERROR", f"critical_max_review_rounds={ccr} but rule(s) {ids} hard-code a round-4 stop", "execution_profile"))
+        # A rule that names the round at which critical PRs stop must name the configured one.
+        if ccr is not None:
+            off: dict[int, list[str]] = {}
+            for r in rules:
+                for sentence in re.split(r"(?<=[.;])\s+", r.text):
+                    if re.search(r"hard stop|sign-?off", sentence, re.I):
+                        found = re.findall(r"\bround[\s-]*(\d+)\b", sentence, re.I)
+                    elif re.search(r"(?<!non-)\bcritical prs?\b", sentence, re.I):
+                        found = re.findall(r"\b(?:up to|after|at|until|reach\w*|hits?)\s+(?:review\s+)?round[\s-]*(\d+)\b", sentence, re.I)
+                    else:
+                        continue
+                    for n in found:
+                        if int(n) != ccr and (r.id or "?") not in off.setdefault(int(n), []):
+                            off[int(n)].append(r.id or "?")
+            for n, ids in sorted(off.items()):
+                f.append(Finding("A05", "ERROR", f"critical_max_review_rounds={ccr} but rule(s) {', '.join(ids)} hard-code a round-{n} stop", "execution_profile"))
 
     # --- A06 volatile state inside the static ruleset ---
     for key in data:
@@ -359,8 +486,16 @@ def run_checks(data: dict[str, Any], rules: list[Rule], raw_text: str, state_tex
                 break
 
     # --- A08 token bloat ---
-    if len(rules) > MANY_RULES:
-        f.append(Finding("A08", "WARN", f"{len(rules)} rules; above ~{MANY_RULES} threads start skimming. Merge or demote to references.", "rules"))
+    per_role: dict[str, int] = {}
+    n_all = sum(1 for r in rules if str(r.applies_to or "").strip() == "all")
+    for r in rules:
+        for scope in {x.strip() for x in str(r.applies_to or "").replace("|", ",").split(",")} - {"all", "owner", ""}:
+            per_role[scope] = per_role.get(scope, 0) + 1
+    heavy = sorted((n + n_all, role) for role, n in per_role.items() if n + n_all > MANY_RULES_PER_ROLE)
+    for n, role in heavy:
+        f.append(Finding("A08", "WARN", f"a {role} thread is bound by {n} rules (its own plus those for all); above ~{MANY_RULES_PER_ROLE} threads start skimming. Merge or demote to references.", "rules"))
+    if len(rules) > MANY_RULES_TOTAL:
+        f.append(Finding("A08", "WARN", f"{len(rules)} rules in total; merge or demote to references.", "rules"))
     for r in rules:
         if len(r.text) > LONG_RULE_CHARS:
             f.append(Finding("A08", "INFO", f"rule `{r.id}` is {len(r.text)} chars; consider splitting or tightening", f"line {r.line}"))
@@ -409,10 +544,19 @@ def run_checks(data: dict[str, Any], rules: list[Rule], raw_text: str, state_tex
         other = (" (contradicts " + ", ".join(r.id or "?" for r in atomic) + ")") if atomic else ""
         f.append(Finding("A09", "ERROR", f"{ids} replace threads immediately on compression; a thread must finish its current atomic step (review round, fix commit, KB PR) and be replaced at the next hand-off" + other, "threads_and_watchdog"))
 
-    round4_stop = rules_matching(r"round\s*4.*(hard stop|owner sign-?off|wait)|(hard stop|owner sign-?off).*round\s*4")
-    bypass = rules_matching(r"(without|no) owner.*(critical|round\s*4)|(critical|round\s*4).*(without|no) owner")
+    round4_stop = rules_matching(r"round\s*\d+.*(hard stop|owner sign-?off|wait)|(hard stop|owner sign-?off).*round\s*\d+")
+    bypass = rules_matching(r"(without|no) owner.*(critical|round\s*\d+)|(critical|round\s*\d+).*(without|no) owner")
     if round4_stop and bypass:
         f.append(Finding("A09", "ERROR", f"`{bypass[0].id}` lets the coordinator proceed without the owner where `{round4_stop[0].id}` demands owner sign-off", "autonomy"))
+    critical_rounds = [r for r in rules if re.search(r"(?<!non-)\bcritical prs?\b[^.]*\bround", r.text, re.I)]
+    if critical_rounds and not round4_stop:
+        ids = ", ".join(r.id or "?" for r in critical_rounds)
+        f.append(Finding("A09", "ERROR", f"{ids} cap the review rounds of critical PRs but no rule stops them for owner sign-off at the last round (invariant 5: a critical PR that has not converged waits for the owner, not for the coordinator)", "pull_requests_and_reviews"))
+    merge_rules = [r for r in rules if re.search(r"squash-?merge only|merges? only on", r.text, re.I)]
+    if merge_rules and not rules_matching(r"no open (B/M|must-?fix)|open must-?fix|zero (open )?must-?fix"):
+        f.append(Finding("A09", "WARN", f"`{merge_rules[0].id}` sets the merge conditions but nothing requires that no must-fix finding is open", "pull_requests_and_reviews"))
+    if rules_matching(r"\bcritical\b") and not rules_matching(r"\b(decides?|confirms?|classif(y|ies)|determines?)\b[^.]*\bcritical\b|\bcritical\b[^.]*\b(decides?|confirms?|classif(y|ies)|determines?)\b"):
+        f.append(Finding("A09", "WARN", "rules treat critical PRs differently but no rule says who decides whether a PR is critical", "plans_and_criticality"))
 
     force_push_banned = rules_matching(r"never force-?push|no force-?push")
     force_push_allowed = rules_matching(r"(always|may|should) force-?push|force-?push to keep")
@@ -448,6 +592,28 @@ def run_checks(data: dict[str, Any], rules: list[Rule], raw_text: str, state_tex
         other = f" (contradicts `{owner_contract[0].id}`)" if owner_contract else ""
         f.append(Finding("A11", "ERROR", f"`{thread_contract[0].id}` lets a thread approve or change an acceptance contract; only the owner approves, and a change is a new version" + other, "plans_and_criticality"))
 
+    # --- A12 per-role extracts in step with the ruleset ---
+    if extracts:
+        version, date = str(data.get("version", "")), str(data.get("date", ""))
+        for name, text in sorted(extracts.items()):
+            m_role = re.search(r"^extract_for:\s*(\S+)", text, re.M)
+            role = m_role.group(1) if m_role else Path(name).stem
+            m_v = re.search(r"^version:\s*(\S+)", text, re.M)
+            m_d = re.search(r"^date:\s*(\S+)", text, re.M)
+            if (m_v and m_v.group(1).strip("\"'") != version) or (m_d and m_d.group(1).strip("\"'") != date):
+                f.append(Finding("A12", "WARN", f"extract `{name}` was generated from another ruleset version or date; regenerate so threads do not read stale rules", "extracts"))
+                continue
+            want = {r.id for r in rules if r.id and {x.strip() for x in str(r.applies_to or "").split(",")} & {role, "all"}}
+            got = set(re.findall(r"^\s*-\s*id:\s*(\S+)", text, re.M))
+            if want != got:
+                diff = ", ".join(sorted(want ^ got))
+                f.append(Finding("A12", "WARN", f"extract `{name}` does not hold the rules that bind a {role} thread (differs in: {diff}); it was edited by hand or is stale", "extracts"))
+            texts = {r.id: r.text for r in rules if r.id}
+            for rid, body in re.findall(r"^\s*-\s*id:\s*(\S+)\n\s*applies_to:.*\n\s*rule:\s*(.*)$", text, re.M):
+                if rid in texts and unquote(body) != texts[rid]:
+                    f.append(Finding("A12", "WARN", f"extract `{name}` words rule `{rid}` differently from the ruleset; the ruleset wins, regenerate the extract", "extracts"))
+                    break
+
     # --- A10 state file cross-check ---
     if state_text is not None:
         if "active_now" not in state_text:
@@ -456,8 +622,8 @@ def run_checks(data: dict[str, Any], rules: list[Rule], raw_text: str, state_tex
             f.append(Finding("A10", "ERROR", "project-state.yaml contains rule entries; rules belong in claude-project-rules.yaml", "state"))
         rules_proj = str(data.get("project", "")).strip()
         m = re.search(r"^project:\s*(.+)$", state_text, re.M)
-        if rules_proj and m and m.group(1).strip().strip("\"'") != rules_proj:
-            f.append(Finding("A10", "WARN", f"state file project `{m.group(1).strip()}` differs from rules project `{rules_proj}`", "state"))
+        if rules_proj and m and unquote(strip_comment(m.group(1))) != rules_proj:
+            f.append(Finding("A10", "WARN", f"state file project `{unquote(strip_comment(m.group(1)))}` differs from rules project `{rules_proj}`", "state"))
 
     return f
 
@@ -490,7 +656,8 @@ def render_markdown(path: Path, findings: list[Finding], n_rules: int) -> str:
             lines.append(f"- **{x.code}** {x.message}{where}")
         lines.append("")
     lines.append("Codes: A01 header, A02 ids, A03 scopes, A04 lanes/labels, A05 execution profile, "
-                 "A06 state leakage, A07 dead history, A08 token bloat, A09 contradiction patterns, A10 state file.")
+                 "A06 state leakage, A07 dead history, A08 token bloat, A09 contradiction patterns, A10 state file, "
+                 "A11 optional roles, A12 per-role extracts, A13 authority order.")
     return "\n".join(lines) + "\n"
 
 
@@ -500,6 +667,7 @@ def main() -> int:
     ap.add_argument("--state", type=Path, help="path to project-state.yaml for cross-checks")
     ap.add_argument("--json", action="store_true", help="emit findings as JSON instead of markdown")
     ap.add_argument("--strict", action="store_true", help="exit 1 on WARN as well as ERROR")
+    ap.add_argument("--extracts", type=Path, help="directory with the per-role extracts (default: `rules/` next to the ruleset, if it exists)")
     args = ap.parse_args()
 
     if not args.rules.is_file():
@@ -515,7 +683,12 @@ def main() -> int:
     if args.state and state_text is None:
         print(f"warning: state file {args.state} not found; skipping cross-checks", file=sys.stderr)
 
-    findings = run_checks(data, rules, raw_text, state_text)
+    extract_dir = args.extracts or args.rules.parent / "rules"
+    extracts = {p.name: p.read_text(encoding="utf-8") for p in sorted(extract_dir.glob("*.yaml"))} if extract_dir.is_dir() else None
+    if args.extracts and extracts is None:
+        print(f"warning: extract directory {args.extracts} not found; skipping that check", file=sys.stderr)
+
+    findings = run_checks(data, rules, raw_text, state_text, extracts)
     findings.sort(key=lambda x: (SEV_ORDER[x.severity], x.code))
 
     if args.json:

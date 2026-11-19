@@ -1,0 +1,10 @@
+schema_version: "1.1"
+name: specify-interview-first-question
+context:
+  scaffold_script: place-files.sh
+expected_outcome: |
+  The owner is present and wants to be asked. The assistant reads the roadmap and the plans folder, says in
+  one line which case this is (a new feature or milestone), and then asks exactly one question, with its
+  recommended answer and a one-sentence reason, about something the workspace does not already answer. It then
+  stops and waits. It does not write a contract file, does not run web research, does not update the roadmap,
+  and does not ask several questions at once.

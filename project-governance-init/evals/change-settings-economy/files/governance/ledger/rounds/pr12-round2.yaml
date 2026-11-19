@@ -1,0 +1,10 @@
+pr: 12
+round: 2
+date: 2026-11-12
+thread: review-1
+head: 8d21e07
+verdict: approved
+must_fix: 0
+should_fix: 0
+report: plans/review-pr12-round2.md
+merged: 5b7e1c9

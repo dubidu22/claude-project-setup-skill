@@ -47,17 +47,18 @@ One owner per step; no step has two.
 |------|-----|------|-------|
 | Interview, research, draft, work packages, roadmap update, lint | specify thread (its own chat, on the `specify` model) | `ROLE-10` | approves; touches rules, state, code or D-numbers |
 | Approve the contract; say yes to creating issues | owner | `ROLE-03` | — |
-| Record the approval (status, date, hash); create issues | specify thread, on the owner's own message | `ROLE-10` | edits criteria afterwards |
-| Pick up: lint, log the D-number, mirror the roadmap into the state file, batch work packages by lane | coordinator | `PLAN-03` | interviews, researches or edits criteria |
+| Record the approval (status, date, hash, the owner's message); create issues and record their numbers | specify thread, on the owner's own message that names the hash | `ROLE-10` | edits the contract afterwards |
+| Pick up: lint, record id, version, D-number and hash in the state file, mirror the roadmap's active milestones there, batch work packages by lane | coordinator | `PLAN-03` | interviews, researches or edits the contract |
+| Copy the pickup record and the owner's approval message into the decision log | KB thread | `KB-01` | changes the hash or the quote |
 | Plans and PR proof per criterion | implementation threads | `PLAN-04` | changes a criterion |
 | Confirm claimed criteria | review threads | `REV-03` | accepts a claim without proof |
 | Close the milestone; handle dropped work | coordinator | `PLAN-05` | closes with an open must criterion |
 
 A dispatcher, where one exists, has no part in acceptance contracts.
 
-The coordinator reads the output of `contract_tool.py summary` (four lines:
-goal, criteria counts, assumptions, sources) and never needs the interview or
-the research.
+The coordinator reads the output of `contract_tool.py summary` (five lines:
+goal, criteria counts, assumptions, sources, and the pickup line to record)
+and never needs the interview or the research.
 
 ## 3. The seven steps
 
@@ -93,16 +94,20 @@ the research.
    and `python3 tools/contract_tool.py roadmap roadmap.yaml --plans plans`.
    Fix every ERROR; look at every WARN.
 6. **Owner approval.** The specify thread presents: the goal sentence, the
-   `must` list, the assumptions, the cut items, the roadmap change and the
-   issue titles. Only the owner's own message approves. The specify thread
-   then sets `status: approved` and fills `approval.by`, `date` and `hash`
-   (from `contract_tool.py hash`). From then on lint fails if a criterion, its
-   verify step, the goal or the core probe is edited in place.
-7. **Pickup and execution.** The coordinator lints the contract, logs the
-   approval as a D-number (in `approval.decision` and the decision log) and
-   batches the work packages. `contract_tool.py goal` refuses a contract
-   without a D-number, so no loop starts on a contract the coordinator has not
-   seen. Implementation plans cite the ids they cover and threads read
+   whole contract as `contract_tool.py brief <contract> --owner` prints it
+   (scope, every criterion with its verify step, the core probe, the cut
+   items, the hash), the assumptions, the roadmap change and the issue
+   titles. The owner approves by quoting the hash ("approved 3fa9c1d2e4b7"),
+   so the yes is tied to exactly what was shown, verify commands included.
+   The specify thread then sets `status: approved` and fills `approval.by`,
+   `date`, `hash` and `owner_message`. Section 6 says what is frozen from
+   then on and how that is checked.
+7. **Pickup and execution.** The coordinator lints the contract and records
+   the pickup line (`<id> v<version> D-<n> hash <hash>`, printed by
+   `contract_tool.py summary`) in `approved_contracts` of the state file; the
+   KB thread copies it into the decision log. It never writes into the
+   contract. `contract_tool.py goal` refuses a contract without that record,
+   so no loop starts on a contract the coordinator has not seen. Implementation plans cite the ids they cover and threads read
    `python3 tools/contract_tool.py brief <contract> [--ids AC-3,AC-4]` instead
    of the whole file. A thread working in Claude Code can run the loop with the
    line printed by `python3 tools/contract_tool.py goal <contract> [--ids ...]
@@ -131,7 +136,9 @@ Words that make a criterion untestable unless a number or a concrete condition
 follows them: fast, quick, easy, simple, intuitive, user-friendly, robust,
 secure, safe, clean, nice, good, proper(ly), appropriate(ly), reasonable,
 seamless, modern, efficient, scalable, reliable, as expected, works.
-The lint script warns on them.
+The lint script warns on them unless the criterion holds a measurement or a
+comparison ("under 300 ms", "exits 2", "at most 3 retries"); a bare number
+such as a version ("Python 3") does not count.
 
 ## 5. Research categories
 
@@ -170,8 +177,32 @@ the owner). Either way the change goes through specify:
    per PR whether to merge or close.
 
 Never edit an approved file in place; a criterion that silently changes after
-review is the failure this whole method exists to prevent, and `approval.hash`
-makes lint catch it.
+review is the failure this whole method exists to prevent.
+
+**What is frozen, and how it is checked.** The hash covers the goal, users,
+access, constraints, out of scope, the core probe and every criterion with
+its priority and verify step. Work packages, sources and the cut list are
+not part of it. A hash stored in the contract alone would prove nothing,
+since whoever edits a criterion can recompute it. So the same hash is kept
+in three places with three different writers, and `contract_tool.py lint`
+and `goal` compare them:
+
+| Where | Written by | Lint finding if it disagrees |
+|---|---|---|
+| `approval.hash` in the contract | specify thread | C027: edited in place |
+| `approval.owner_message` (the owner's "approved <hash>") | specify thread, quoting the owner | C038: the message approves something else |
+| `approved_contracts` in the state file, and the decision log | coordinator, then KB thread | C037: differs from what was picked up |
+
+With an in-repo workspace there is a fourth, stronger one: contracts reach
+the default branch only by pull request, and with CODEOWNERS and required
+code-owner review that pull request needs the owner's review. In a claude.ai
+Project there is no such technical barrier; the three records make a silent
+change take coordinated edits in files owned by other roles, which the audit
+looks for, but they do not make it impossible.
+
+A contract approved under an older tool version carries a hash that does not
+cover users, access, constraints and out of scope. Lint reports that as a
+warning (C027) and names the full hash; the next version gets it.
 
 ## 7. Closing a milestone
 
@@ -229,19 +260,30 @@ hash) and one `backlog` draft per `cut` item.
 - `after: [key]` on a package says it cannot start before another one is
   merged. Use it only for real dependencies; unordered packages can run in
   parallel lanes.
-- The numbers are starting points. The implementation ledger records
-  compactions per PR and the review ledger rounds per PR: packages that
+- The numbers are starting points. The ledger entries record compactions
+  per PR and rounds per PR (`ledger_tool.py stats`): packages that
   regularly cause a compaction or a third round are too big for this project.
 - Every `must` and `should` criterion is in exactly one package; lint fails
   otherwise.
 - An issue cites criteria, it never defines them. The contract is the only
   place a criterion is written, because issues can be edited by anyone and
   nothing freezes them. To change a criterion, change the contract.
-- Issues are created only after the owner's explicit yes, after approval. On
-  a new contract version, regenerate the drafts and tell the owner which
-  existing issues they replace; closing or editing those is the owner's call.
-- Regrouping packages does not change the hash: it covers the goal, the core
-  probe and the criteria, not how the work is cut.
+- Each package's label must be one of the ruleset's file-ownership labels;
+  lint checks it against `claude-project-rules.yaml`.
+- Issues are created only after the owner's explicit yes, after approval,
+  and only after the pre-flight: `contract_tool.py issues <contract>
+  --preflight` names the labels and milestones the issues need; if one is
+  missing on GitHub, nothing is created until it exists (labels:
+  `github-setup/create-labels.sh`; milestones are an owner hand step).
+- Every created issue is recorded at once with `contract_tool.py
+  record-issue <contract> <package key> <number>` (in
+  `plans/issues-<contract id>.json`). `issues` then marks each draft
+  `create`, `exists` (skip) or `replaces #N` (the package had an issue from
+  an earlier version), and lists issues whose package is gone. A second run
+  therefore creates nothing twice, and a new version says exactly which
+  issue numbers it affects; closing or editing those is the owner's call.
+- Regrouping packages does not change the hash: it covers what done means,
+  not how the work is cut.
 
 ## 10. The roadmap
 
@@ -249,9 +291,11 @@ hash) and one `backlog` draft per `cut` item.
 `name`, `goal` (one sentence), `status` (`planned`, `active`, `done`,
 `dropped`) and `contract` (its id). Order is priority.
 
-- The owner decides it; a specify thread edits it; the coordinator mirrors
-  the `active` entries into `project-state.yaml` on pickup and sets `done`
-  when it closes a milestone (`PLAN-05`). Nobody else writes it.
+- The owner decides it; a specify thread is its only writer. The coordinator
+  mirrors the `active` entries into `project-state.yaml` on pickup and, when
+  it closes a milestone (`PLAN-05`), records that in `closed_milestones`
+  there and in the decision log; the next specify run sets `done` in the
+  roadmap.
 - A milestone turns `active` only together with an approved contract.
   `contract_tool.py roadmap roadmap.yaml --plans plans` checks this, along
   with duplicate names, dropped milestones that still have an approved

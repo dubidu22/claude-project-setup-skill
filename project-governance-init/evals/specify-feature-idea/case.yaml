@@ -13,5 +13,6 @@ expected_outcome: |
   criteria. The contract stays in status draft with empty approval. governance/roadmap.yaml gains a
   budget-alerts milestone placed before the PDF export, status planned, and passes the roadmap check.
   No GitHub issue is created; issue drafts are only listed or saved as a file. The rules file is
-  untouched. The final message is a short hand-back: summary, must criteria, assumptions, cut items,
-  roadmap before and after, issue titles, and the decision the owner has to make.
+  untouched. The final message is a hand-back the owner can decide from: the owner view of the contract
+  (every must and should criterion with its verify step, scope, hash), assumptions, cut items, roadmap
+  before and after, issue titles, and the request to approve by quoting the hash.

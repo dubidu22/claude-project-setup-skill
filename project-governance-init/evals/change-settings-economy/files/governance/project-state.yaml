@@ -1,15 +1,22 @@
 # ledgerlite: volatile runtime state (separated from static rules)
-date: 2026-11-19
-project: ledgerlite
+# One writer: the coordinator. Other threads read it and report changes to the coordinator (THR-04).
+date: 2026-11-12
+project: "ledgerlite"
 
 active_now:
   autonomy_horizon: "until v1.0 is finished"
   paused: false
   slow_down: true
   thread_freeze: false
-  active_milestones: [v0.2]
+  active_milestones: ["v0.2"]
   owner_autonomy_message_ids: []
   owner_open_steps: ["Create the PyPI token", "Add the staging SSH key"]   # hand steps waiting for the owner, titles only (ROLE-13)
+
+# One line per picked-up contract version, written by the coordinator (PLAN-03). contract_tool.py
+# compares a contract with its line here, so an approved contract cannot change unnoticed.
+# Format: "C-001 v1 D-012 hash 0123456789ab"
+approved_contracts: []
+closed_milestones: []
 
 notifications_pending:
   - "first usable build ready for personal testing"

@@ -26,19 +26,27 @@ them is the owner's decision, through init (rules and settings) or specify
    python3 scripts/audit_rules.py <rules.yaml> [--state <state.yaml>] [--json]
    ```
    It finds duplicate ids, missing or unknown `applies_to`, undeclared labels,
-   state leaking into rules, dead history, implausible thresholds, undefined
-   optional roles and the common contradiction patterns. Exit code 1 means at
-   least one error.
+   state leaking into rules, dead history, implausible or non-numeric
+   thresholds, undefined optional roles, a missing hard stop for critical
+   PRs, merge conditions without "no open must-fix finding", an authority
+   order that ranks the decision log above the owner, per-role extracts that
+   are out of step with the ruleset, and the common contradiction patterns.
+   Exit code 1 means at least one error.
 3. **Mechanical pass on each acceptance contract.**
    ```bash
    python3 scripts/contract_tool.py lint <plans/contract-NNN-slug.yaml>
    ```
-   It finds untestable or compound criteria, missing verify steps, unsourced
-   research, uncovered categories, an approval that is not the owner's, and
-   approved criteria edited in place (hash mismatch), and criteria outside any
-   work package. Then the roadmap against the contracts:
+   Run it from the workspace so it finds the state file, the decision log and
+   the ruleset next to `plans/`. It finds untestable or compound criteria,
+   missing verify steps, unsourced research, uncovered categories, an approval
+   that is not the owner's or whose message does not name the hash, a contract
+   that differs from its pickup record (edited after approval, even if its
+   hash was recomputed), a work-package label the ruleset does not have, and
+   criteria outside any work package. Then the roadmap against the contracts
+   and, if there is a ledger, its entries:
    ```bash
    python3 scripts/contract_tool.py roadmap <roadmap.yaml> --plans <plans dir>
+   python3 scripts/ledger_tool.py check --ledger <ledger dir>
    ```
 4. **Semantic pass.** Work through `references/audit-checklist.md`: the
    contradiction pairs, scope and role ownership, state leakage, token cost,
@@ -53,6 +61,8 @@ them is the owner's decision, through init (rules and settings) or specify
 ## Things that are easy to get wrong
 
 - Fixing while auditing. Even an obvious typo stays in the report.
+- Auditing in the coordinator chat. The audit reads many files; run it in its
+  own chat and give the coordinator the verdict paragraph only.
 - Calling a contract approved, or a ruleset safe, because the scripts came back
   clean. The scripts cannot tell whether a criterion or a rule is the right one.
 - Reporting a contradiction without both ids and without proposed text.

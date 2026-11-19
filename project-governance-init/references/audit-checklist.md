@@ -9,12 +9,14 @@ reports; it changes nothing.
 
 ## Inputs to gather
 
-- `claude-project-rules.yaml` (required) and `project-state.yaml` if present.
+- `claude-project-rules.yaml` (required), the extracts in `rules/` and
+  `project-state.yaml` if present.
 - The repository's `CLAUDE.md`, any `kb/process.md` / `kb/architecture.md`,
   the newest 10 to 20 decision-log entries, and workflow files under
   `.github/workflows/`. Rules often contradict *these*, not each other.
-- `roadmap.yaml`, every `plans/contract-*.yaml`, the plans and PR bodies that
-  cite them, and the open issues if GitHub is reachable (read only).
+- `roadmap.yaml`, every `plans/contract-*.yaml`, `plans/issues-*.json`, the
+  plans and PR bodies that cite them, the ledger (`ledger_tool.py table` and
+  `check`), and the open issues if GitHub is reachable (read only).
 - If `governance-config.json` exists, regenerate into a temporary directory
   outside the project (never over the live files) and
   diff: hand edits that drifted from the generator are the first suspects.
@@ -49,12 +51,15 @@ Check each pair explicitly and quote both rule ids in the finding.
 | Release CI precedence | `testing_and_ci`, workflow `on:` triggers | a release-branch trigger (ubuntu-only, skip matrix) stated as applying to *all* PRs; no dispatch/label path for the full matrix; `CRIT-02` demands full CI but no workflow can provide it |
 | KB criticality scope | `plans_and_criticality`, `github_kb_and_release`, `roles` | KB docs critical *and* every KB PR requires review *and* KB thread self-merges: pick two; or decision-log PRs exempt but process docs also exempt |
 | Atomic replacement | `threads_and_watchdog` | "replaced immediately", "mid-review", or a KB-thread exception that lets it be replaced mid-PR |
-| Round-4 hard stop | `autonomy`, `pull_requests_and_reviews`, `execution_profile.token_economy.critical_max_review_rounds` | autonomy grant lets the coordinator approve after round 4; `critical_max_review_rounds` is not 4 while rules say round 4; non-critical cap exceeds critical cap |
+| Hard stop at the last critical round | `autonomy`, `pull_requests_and_reviews`, `execution_profile.token_economy.critical_max_review_rounds` | no rule stops a critical PR for owner sign-off (a hand edit to "coordinator escalation"); an autonomy grant lets the coordinator approve after the last round; the round a rule names differs from `critical_max_review_rounds`; non-critical cap exceeds critical cap |
+| Criticality and merge go | `plans_and_criticality`, `pull_requests_and_reviews`, `roles` | no rule says who decides whether a PR is critical; the dispatcher or the author decides it alone; merge allowed with an open must-fix finding; `REV-01` defers must-fix findings to issues; `REV-01` and `REV-04` fire at the same round with no stated order, or the rounds after escalation are not stated |
 | Owner approval | `roles` | something other than the owner's own messages counts as approval; a thread may edit the ruleset |
 | Acceptance-contract freeze | `plans_and_criticality`, `autonomy` | an autonomy grant (`AUTO-01`) lets a thread approve or change an acceptance contract that `PLAN-03` reserves for the owner; `PLAN-05` closes milestones without the core probe; `REV-03` missing while `PLAN-04` requires proof in PR bodies |
 | Dispatcher authority | `roles`, `pull_requests_and_reviews` | the dispatcher may grant merge go for critical PRs, approve plans or decide scope; a rule still tells the coordinator to do what `ROLE-11` gave the dispatcher (two owners for one duty); `ROLE-04` relays fix lists while `THR-04` routes them through round reports |
 | Force-push / branch freeze | `pull_requests_and_reviews`, `CLAUDE.md` | repo docs say "always force-push after rebase" while rules say never |
-| Authority order | header `authority`, `project_instructions` | two sources both claim to win; decision log not above repo `CLAUDE.md` |
+| Authority order | header `authority`, `project_instructions`, `ROLE-01` | the decision log ranks above the owner's messages although `ROLE-01` lets the owner override any entry; the ruleset or approved contracts are missing from the list; two sources both claim to win; decision log not above repo `CLAUDE.md`; D-entries for owner decisions without the owner's message quoted |
+| One writer per file | `threads_and_watchdog`, `roles`, templates | two roles write the same ledger, the state file or the roadmap (for example an assist thread editing `owner_open_steps`, or a dispatcher "keeping the ledgers current"); in a repo, no rule names the branch working files are committed on |
+| Observable triggers | `threads_and_watchdog` | a rule depends on something a thread cannot see: its own compression count as the only replacement trigger, its context size in tokens, a timer nobody fires, `/compact` in a claude.ai Project, a model that is "set" with no rule saying by whom |
 
 ## 4. Token efficiency
 
@@ -66,7 +71,7 @@ size (governance-model section 9). First, habits that throw the cache away:
   ledgers and round reports); a watchdog rule that nudges cold threads
 - model routing where critical work is reviewed on a weaker model than it was
   written on, or a cheaper routine model whose PRs need more review rounds
-  than before (compare rounds per PR in the review ledger)
+  than before (compare rounds per PR, `ledger_tool.py stats`)
 - a rule or routine that changes a thread's model or tool set mid-thread (for
   example one review thread switching models between critical and regular PRs)
 - logs, diffs or full tool output pasted into chat or written into round
@@ -74,9 +79,9 @@ size (governance-model section 9). First, habits that throw the cache away:
 - a new thread spawned per small fix while a warm thread on the same code exists
 - the coordinator woken many times a day for single questions or status
   updates, or reading diffs, logs or whole contracts
-- work packages of the wrong size: the implementation ledger shows
-  compactions on most PRs or the review ledger a third round on routine PRs
-  (too big), or many one-line PRs each from a fresh thread (too small)
+- work packages of the wrong size: `ledger_tool.py stats` shows compactions
+  on most PRs or a third round on routine PRs (too big), or many one-line PRs
+  each from a fresh thread (too small)
 - plans and round reports without a current three-line handoff
 - a coordinator rule that forbids compaction outright, or one that has the
   coordinator compact after a long wait instead of before it
@@ -85,7 +90,10 @@ size (governance-model section 9). First, habits that throw the cache away:
 
 Then the text every thread reads at its start. Flag:
 
-- more than ~60 rules, or any rule over ~450 characters that could be two
+- threads told to read the whole ruleset instead of their extract
+  (`rules/<role>.yaml`), or extracts that are missing or out of step
+- more than ~40 rules binding one role (its own plus those for all), or any
+  rule over ~450 characters that could be two
 - duplicated wording (same rule stated in two sections)
 - explanations and rationale inside rules (move to KB; keep the rule)
 - history sections, command logs, changelogs
@@ -115,7 +123,7 @@ Propose the replacement text for each flagged rule, not just the complaint.
   is read from ledgers and PR state. A coordinator rule that forwards
   per-PR messages is a token finding and a role finding.
 - Authority stays where it belongs: scope, the roadmap, acceptance contracts
-  and round-4 sign-off with the owner; drafting them with specify, which
+  and sign-off at the last critical round with the owner; drafting them with specify, which
   approves nothing; critical merge go and plan approval with the
   coordinator; nothing critical with a dispatcher.
 
@@ -131,15 +139,22 @@ For each `plans/contract-*.yaml`, after `contract_tool.py lint`:
 - Are skipped categories skipped for a reason that holds for this milestone?
 - Do plans and PR bodies cite criterion ids with proof (`PLAN-04`), and did a
   review confirm them (`REV-03`)?
-- Was the contract approved by the owner's own message, with a D-number in the
-  decision log that matches `approval.decision`?
+- Was the contract approved by the owner's own message, and does that message
+  name the hash? Is there a pickup record (`approved_contracts` in the state
+  file, a D-entry in the decision log) with the same hash? A contract whose
+  three hashes agree but whose text differs from what the PRs were reviewed
+  against is the case to look for by reading, since a thread that can write
+  all three files could have changed them together.
+- Were the verify steps shown to the owner (the hand-back used `brief
+  --owner`), and does any of them run a command the owner would not expect?
 
 Propose rewritten criterion text with a verify step for each one that fails.
 
 Issues and roadmap, after `contract_tool.py roadmap --plans`:
 
-- Do the GitHub issues still match `contract_tool.py issues` for the approved
-  version? An issue whose criteria text differs from the contract has drifted;
+- Does `plans/issues-<contract id>.json` name an issue for every work package,
+  with no package created twice? Do the GitHub issues still match
+  `contract_tool.py issues` for the approved version? An issue whose criteria text differs from the contract has drifted;
   the contract wins.
 - Is there an issue or PR for work that no approved criterion covers, or an
   `active` milestone whose contract the coordinator never picked up (no

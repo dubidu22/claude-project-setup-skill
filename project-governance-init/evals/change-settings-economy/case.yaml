@@ -8,8 +8,9 @@ expected_outcome: |
   so governance/claude-project-rules.yaml now routes routine implementation and review to Sonnet,
   carries the frugal token numbers and contains the escalation rule, while lanes, owner data and
   invariants are unchanged. governance/project-state.yaml keeps its live values (slow_down true,
-  the two open owner steps) and the review ledger keeps its entry. The generated instruction files
+  the two open owner steps) and the ledger entries for PR 12 are untouched. The per-role extracts in
+  governance/rules/ are regenerated with the ruleset. The generated instruction files
   are refreshed and the rules pass the mechanical audit with zero errors. The final message lists
   in plain words what changed (models per slot, the main token numbers, rules added) and what the
-  owner does next: tell the coordinator to re-read the rules, running threads keep their model
+  owner does next: give the coordinator the decision-log entry for the change and have it re-read its rules, running threads keep their model
   until replaced, and compare review rounds per PR after the next batch.

@@ -39,7 +39,7 @@ core_probe: "<the one end-to-end check that proves the goal sentence from a fres
 work_packages:               # one package = one thread, one PR, one review round; every must/should criterion in exactly one
   - key: wp1
     title: "<what this package delivers>"
-    label: lane:core         # one file-ownership label from the ruleset
+    label: "{{first_label}}"     # one file-ownership label from the ruleset (lint checks it)
     criteria: [AC-1]         # about six at most; split by what can be built and reviewed on its own
     # after: [other-key]     # only if this package cannot start before another one is merged
 
@@ -49,10 +49,12 @@ research:
   categories_skipped: []     # e.g. ["accessibility: no UI in this milestone"]
   notes: ""
 
-approval:
+approval:                    # filled in by the specify thread, only on the owner's own message
   by: ""                     # must be "owner" once status is approved
   date: ""                   # YYYY-MM-DD
-  decision: ""               # D-number, filled in by the coordinator on pickup
-  hash: ""                   # output of `contract_tool.py hash`; lint fails if criteria change afterwards
+  hash: ""                   # output of `contract_tool.py hash`; covers goal, users, access, constraints, out_of_scope, core probe, criteria
+  owner_message: ""          # the owner's approval message, quoted; it must contain the hash
+# After approval nobody edits this file. The coordinator records "<id> v<version> D-<n> hash <hash>" in
+# approved_contracts of project-state.yaml on pickup; lint compares the contract with that record.
 
 changes: []                  # version history: "v2: AC-4 threshold 300 ms -> 500 ms (D-0xx)"

@@ -4,4 +4,4 @@ focus: trace
 weight: 1
 ---
 
-The final message is a short hand-back (summary counts, must criteria in a line each, assumptions, cut items, roadmap before and after, issue titles, the decision asked of the owner) and does not paste the whole contract
+The final message is a hand-back the owner can decide from: the case, the owner view of the contract (scope, every must and should criterion with its verify step, the core probe, cut items and the contract hash), the assumptions, the roadmap before and after, the issue titles, and the request to approve by quoting the hash. It does not paste the YAML file, the sources or the research notes
