@@ -1,0 +1,11 @@
+schema_version: "1.1"
+name: init-stage-one-waits
+context:
+  scaffold_script: place-files.sh
+expected_outcome: |
+  The owner is present and asked to be walked through. The assistant first says in one line what is starting,
+  looks at the repository (pyproject.toml, the package layout, the CI workflow) and says what it detected: a
+  Python CLI, checks ruff and pytest, CI on ubuntu only. It then presents stage 1 only (identity and
+  environment) with its recommended values, including the workspace root and what that choice means, and asks
+  the owner to confirm or correct them. It stops there: it does not present the later stages in the same
+  message, does not write a config, and generates no rules, state or scaffold files.

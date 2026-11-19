@@ -1,0 +1,22 @@
+{
+  "project_name": "ledgerlite",
+  "repo_slug": "rwaller/ledgerlite",
+  "is_public": false,
+  "owner_name": "Rosa Waller",
+  "owner_gh": "rwaller",
+  "timezone": "America/Chicago",
+  "local_os_shell": "macOS zsh",
+  "local_clone_path": "~/dev/ledgerlite",
+  "workspace_root": "./governance",
+  "stack_key": "python_cli_or_service",
+  "fast_checks": "ruff check ., mypy, pytest -q",
+  "target_platforms": [
+    "ubuntu-latest",
+    "macos-latest"
+  ],
+  "model_preset": "balanced",
+  "profile_key": "frugal",
+  "active_milestones": [
+    "v0.1"
+  ]
+}

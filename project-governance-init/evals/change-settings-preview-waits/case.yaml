@@ -1,0 +1,11 @@
+schema_version: "1.1"
+name: change-settings-preview-waits
+context:
+  scaffold_script: place-files.sh
+expected_outcome: |
+  The owner asks for a settings change without having seen what it does. The assistant does not rerun the
+  setup walkthrough. It runs generate_project_rules.py on governance/governance-config.json with --set
+  model_preset=economy and --dry-run, shows the owner in plain words what would change (the model per thread
+  type, any rules added or reworded), and asks for a yes. It writes nothing: governance/claude-project-rules.yaml,
+  the extracts in governance/rules/ and governance-config.json are byte-for-byte unchanged, and no setting of
+  the Claude app, project or account is touched.

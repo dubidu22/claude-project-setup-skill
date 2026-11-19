@@ -1,0 +1,49 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install pytest pyyaml
+      - run: python -m pytest tests -q
+
+  # The scripts promise to work without PyYAML; prove it on a runner that does not have it.
+  without-pyyaml:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Generate, audit, scaffold and lint with the standard library only
+        run: |
+          python - <<'PY'
+          import importlib.util, sys
+          sys.exit("PyYAML is installed; this job must run without it" if importlib.util.find_spec("yaml") else 0)
+          PY
+          cd project-governance-init
+          echo '{"project_name": "Shop: Phase #2", "workspace_root": "./governance"}' > /tmp/c.json
+          python scripts/generate_project_rules.py --from-json /tmp/c.json --out-dir /tmp/ws
+          python scripts/audit_rules.py /tmp/ws/claude-project-rules.yaml --state /tmp/ws/project-state.yaml --strict
+          python scripts/scaffold_workspace.py --from-json /tmp/ws/governance-config.json --out-dir /tmp/ws --github
+          mkdir /tmp/fixture && cd /tmp/fixture
+          bash "$GITHUB_WORKSPACE/project-governance-init/evals/specify-plan-change/place-files.sh"
+          python governance/tools/contract_tool.py lint governance/plans/contract-001-csv-import.yaml --strict
+          python governance/tools/contract_tool.py roadmap governance/roadmap.yaml --plans governance/plans
+          python governance/tools/contract_tool.py goal governance/plans/contract-001-csv-import.yaml

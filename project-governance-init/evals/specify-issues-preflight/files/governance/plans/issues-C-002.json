@@ -1,0 +1,10 @@
+{
+  "contract": "C-002",
+  "packages": {
+    "budgets": {
+      "issue": 31,
+      "version": 1,
+      "title": "[C-002] Budget file and over-budget warning"
+    }
+  }
+}

@@ -1,0 +1,9 @@
+pr: 12
+opened: 2026-11-10
+thread: impl-app_cli-1
+lane: app_cli
+labels: "lane:cli"
+package: import
+plan: plans/plan-003-app_cli-import.md
+critical: no
+compactions: 0

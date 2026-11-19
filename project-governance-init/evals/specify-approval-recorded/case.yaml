@@ -1,0 +1,13 @@
+schema_version: "1.1"
+name: specify-approval-recorded
+context:
+  scaffold_script: place-files.sh
+expected_outcome: |
+  The assistant recognises the message as the owner's approval of the draft contract C-002 and checks that the
+  quoted hash c21a6cc9c189 equals the output of contract_tool.py hash for governance/plans/contract-002-budget-alerts.yaml.
+  It then records the approval in that file: status approved, approval.by owner, a date, approval.hash c21a6cc9c189 and
+  approval.owner_message containing the owner's message with the hash. No criterion, verify step, goal or scope
+  line is changed. contract_tool.py lint reports zero errors afterwards. It sets v0.2 to active in
+  governance/roadmap.yaml because the owner asked to start it. It creates no GitHub issue (that needs a separate
+  yes), does not write project-state.yaml, the decision log or the ruleset, and tells the owner the one thing
+  left to do: tell the coordinator to pick up C-002.

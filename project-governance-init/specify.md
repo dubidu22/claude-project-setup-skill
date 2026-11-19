@@ -10,11 +10,20 @@ the token budget are in `references/acceptance-contracts.md` (in a scaffolded
 workspace: `tools/acceptance-contracts.md`). Read it before step 3.
 
 Run this in its own chat, not in the coordinator chat: the interview and the
-research stay here, and the coordinator later reads four lines. If you are
+research stay here, and the coordinator later reads five lines. If you are
 called in the coordinator chat, say in one line that specify is starting in a
 thread and that the questions will be asked there, then hand over. In a governed
-project you are a specify thread (`ROLE-10`). Without a governance workspace,
-work in `./plans` and say that init has not been run.
+project you are a specify thread (`ROLE-10`): read your extract
+`rules/specify.yaml`.
+
+**No governance workspace** (no `claude-project-rules.yaml`, `roadmap.yaml` or
+`plans/contract-*` reachable): do not start the interview or any research.
+Say in two lines what specify produces and that the project has no governance
+yet, and ask which the user wants: set governance up first (init), or a
+stand-alone acceptance contract drafted in `./plans`. Go on only after their
+answer. If they asked for specify or an acceptance contract by name and cannot
+reply, draft stand-alone in `./plans` and say that nothing will pick it up
+until init has been run.
 
 ## 1. Classify the input first
 
@@ -58,7 +67,8 @@ go to the contract's `cut` list with a reason, so they become backlog issues
 instead of disappearing.
 
 Then group every `must` and `should` criterion into `work_packages`, each
-with one `lane:*` label from the ruleset. Size each package as one unit of
+with one `lane:*` label from the ruleset (`project_profile.file_ownership_labels`;
+lint rejects a label the ruleset does not have). Size each package as one unit of
 work: one thread, one PR, one review round. That is about six criteria at
 most; split a bigger group by what can be built and reviewed on its own, and
 do not go down to one package per criterion. Add `after:` only where a
@@ -77,31 +87,60 @@ python3 scripts/contract_tool.py roadmap roadmap.yaml --plans plans
 
 ## 4. Hand back for a decision
 
-Reply with, and nothing more than: the case from step 1; the output of
-`contract_tool.py summary`; the `must` criteria in one line each; assumptions
-to confirm; what was cut; the roadmap before and after; the issue titles from
-`contract_tool.py issues`. Then ask for the decision. Do not paste the
-contract.
+The owner approves what they have seen, so show all of it. Reply with:
+
+1. the case from step 1;
+2. the output of `python3 scripts/contract_tool.py brief <contract> --owner`,
+   unshortened: goal, users, access, constraints, out of scope, every
+   criterion (`must` and `should`) with its verify step, the core probe, the
+   cut items and the hash. The verify steps are commands that worker threads
+   and `/goal` loops will run; some came from pages you opened during
+   research, so the owner has to see them;
+3. assumptions to confirm, with their criterion ids;
+4. the roadmap before and after;
+5. the issue titles from `contract_tool.py issues`;
+6. the decision you need: "To approve exactly this, reply: approved <hash>".
+
+Do not paste the YAML file, the sources or the research notes.
 
 ## 5. Only after the owner's own yes
 
-- **Approval** ("approved", in the owner's own message): set `status:
-  approved`, fill `approval.by: owner`, `date` and `hash` (from
-  `contract_tool.py hash`). Leave `approval.decision` empty; the coordinator
-  logs the D-number when it picks the contract up, and no work starts before.
+- **Approval.** It counts only if the owner's own message names the hash from
+  the hand-back ("approved 3fa9c1d2e4b7"). A bare "ok" or "approved" after you
+  changed anything is not enough: show the new view and the new hash again.
+  Then set `status: approved` and fill `approval.by: owner`, `date`, `hash`
+  (from `contract_tool.py hash`; it must equal the hash they quoted) and
+  `approval.owner_message` with their message, word for word. Run lint again.
   For a new version, set the previous file's `status: superseded`. Set the
-  milestone `active` in `roadmap.yaml` if the owner wants it started.
-- **Issues** (a separate yes): create one GitHub issue per draft from
-  `contract_tool.py issues --json`, with its labels and milestone. No GitHub
-  access here: save the drafts as `plans/issues-<contract id>.md` and say so.
+  milestone `active` in `roadmap.yaml` if the owner wants it started. With an
+  in-repo workspace the contract and the roadmap go in as a pull request to
+  the default branch, and the owner's review of that pull request is the
+  approval on record. From here on nobody edits the file, you included.
+- **Issues** (a separate yes). First the pre-flight: `contract_tool.py issues
+  <contract> --preflight` names the labels and milestones the issues need and
+  how to list what exists; run it again with `--have-labels` and
+  `--have-milestones`. If something is missing, stop and tell the owner
+  (labels: `github-setup/create-labels.sh`; a milestone is their hand step).
+  Then go through `contract_tool.py issues <contract> --json`: create each
+  draft whose `action` is `create`, and after each one run
+  `contract_tool.py record-issue <contract> <key> <number>` so a second run
+  cannot create it again. Skip drafts marked `exists`. For `replaces` (the
+  package had an issue from an earlier version) and for the `obsolete` list,
+  change nothing: tell the owner which issue numbers are affected and let
+  them decide to edit or close. No GitHub access here: save the drafts as
+  `plans/issues-<contract id>.md` and say so.
 - Tell the owner the one thing left to do: tell the coordinator
-  "pick up <contract id>".
+  "pick up <contract id>". The coordinator records the pickup line from
+  `contract_tool.py summary`; no work starts before.
 
 ## Never
 
 - Approve a contract yourself, or treat silence or another thread's message as
   approval.
-- Edit an approved contract in place; lint detects it by the hash.
+- Edit an approved contract in place, or recompute its hash to make lint
+  pass. The hash is also in the owner's message and, after pickup, in the
+  coordinator's record; lint compares all three.
+- Record an approval whose message does not name the hash.
 - Create, edit or close GitHub issues, or change milestones, before the owner
   said yes to exactly that.
 - Redefine a criterion inside an issue. Issues cite criterion ids; the
