@@ -18,10 +18,13 @@ into the target directory:
       kb/README.md
       kb/decision-log.md          with D-001 recording adoption of the ruleset
       kb/pending-decisions.md     decisions the coordinator made that the KB thread has not compiled yet
+      kb/verification.md          how to run the product and prove behaviour (only with runtime_verification: true)
+      kb/features/README.md       the feature map (only with runtime_verification: true)
       ledger/README.md            entry formats; entries go to ledger/prs, ledger/rounds, ledger/audits
-      github-setup/               with --github: create-labels.sh, and for an in-repo workspace CODEOWNERS,
-                                  plus labeler files when critical_paths is set. Nothing here takes effect
-                                  until the owner runs or copies it (github-setup/README.md says how).
+      github-setup/               with --github: create-labels.sh, the pull-request checks (pr_checks.py, its
+                                  config and a workflow), and for an in-repo workspace CODEOWNERS, plus labeler
+                                  files when critical_paths is set. Nothing here takes effect until the owner
+                                  runs or copies it (github-setup/README.md says how).
 
 Usage:
     python3 scaffold_workspace.py --from-json governance-config.json --out-dir <dir> [--github] [--force | --refresh]
@@ -33,7 +36,7 @@ files that are generated from the config and never edited by threads.
 Templates use `{{key}}` for any config key (lists are joined with commas,
 `token_cfg.<name>` for token numbers) and whole-line markers for optional
 parts: `<!-- if:flag -->` ... `<!-- endif -->` and `<!-- if:!flag -->`. Flags:
-acceptance_contracts, dispatcher, compaction, in_repo, escalation, contracts_in_repo.
+acceptance_contracts, dispatcher, compaction, in_repo, escalation, contracts_in_repo, runtime_verification.
 """
 
 from __future__ import annotations
@@ -51,8 +54,13 @@ import generate_project_rules as gen  # noqa: E402
 TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "assets" / "templates"
 SCRIPT_DIR = Path(__file__).resolve().parent
 CONTRACT_METHOD = SCRIPT_DIR.parent / "references" / "acceptance-contracts.md"
-CONTRACT_TEMPLATE = Path("plans") / "contract-template.yaml"
-DISPATCHER_TEMPLATE = Path("dispatcher_instructions.md")
+# Templates that are only scaffolded when a feature is on: relative path -> flag.
+OPTIONAL_TEMPLATES = {
+    "plans/contract-template.yaml": "acceptance_contracts",
+    "dispatcher_instructions.md": "dispatcher",
+    "kb/verification.md": "runtime_verification",
+    "kb/features/README.md": "runtime_verification",
+}
 # Generated from the config and never edited by threads: safe to overwrite on --refresh.
 REFRESHABLE = {"project_instructions.md", "dispatcher_instructions.md", "plans/README.md",
                "plans/contract-template.yaml", "kb/README.md", "ledger/README.md"}
@@ -191,7 +199,8 @@ def template_values(cfg: dict[str, Any]) -> tuple[dict[str, str], dict[str, bool
         ),
     })
     flags = {"acceptance_contracts": contracts, "dispatcher": disp, "compaction": every > 0,
-             "in_repo": in_repo, "escalation": bool(esc), "contracts_in_repo": contracts and in_repo}
+             "in_repo": in_repo, "escalation": bool(esc), "contracts_in_repo": contracts and in_repo,
+             "runtime_verification": bool(cfg["runtime_verification"])}
     return values, flags
 
 
@@ -309,6 +318,60 @@ def labeler_files(cfg: dict[str, Any]) -> dict[str, str]:
     return {"labeler.yml": config, "labeler-workflow.yml": workflow}
 
 
+def pr_checks_config(cfg: dict[str, Any]) -> dict[str, Any]:
+    """Config for pr_checks.py: what a machine can check about a pull request."""
+    labels = list(cfg["ownership_labels"])
+    paths: dict[str, list[str]] = {}
+    for entry in cfg["label_paths"]:
+        label, _, glob = entry.partition("=")
+        paths.setdefault(label, []).append(glob)
+    ws = repo_path(cfg)
+    return {
+        "ownership_labels": labels,
+        "label_paths": paths,
+        "open_labels": [l for l in ("lane:docs",) if l in labels],
+        "lock_label": "lane:infra" if {"lane:infra", "lane:core"} <= set(labels) else "",
+        "locked_label": "lane:core" if {"lane:infra", "lane:core"} <= set(labels) else "",
+        "critical_paths": list(cfg["critical_paths"]),
+        "governance_paths": [ws + "/**"] if cfg["environment"] == "claude_code" and ws else [],
+    }
+
+
+PR_CHECKS_WORKFLOW = """\
+# Runs the pull-request checks a machine can do (title, closing keywords, lane label, file ownership,
+# critical paths), so they are not left to a thread remembering a rule. Copy to
+# .github/workflows/governance-pr-checks.yml, with pr_checks.py and pr-checks.json in .github/governance/.
+# Then make this check required in the branch protection of the default branch.
+# Not run by the skill's own tests: check the syntax and the action versions before relying on it.
+name: governance pr checks
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, labeled, unlabeled]
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check title, labels, ownership and critical paths
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git diff --name-status "$PR_BASE...$PR_HEAD" > "$RUNNER_TEMP/changed.txt"
+          git log --format=%B "$PR_BASE..$PR_HEAD" > "$RUNNER_TEMP/commits.txt"
+          python3 .github/governance/pr_checks.py --config .github/governance/pr-checks.json \\
+            --title "$PR_TITLE" --labels "$PR_LABELS" \\
+            --files "$RUNNER_TEMP/changed.txt" --commits "$RUNNER_TEMP/commits.txt"
+"""
+
+
 def github_readme(cfg: dict[str, Any], names: list[str]) -> str:
     lines = [
         "# github-setup/",
@@ -317,6 +380,14 @@ def github_readme(cfg: dict[str, Any], names: list[str]) -> str:
         "thread applies it: repository settings are the owner's (`ROLE-14`).",
         "",
         "- `create-labels.sh`: creates the lane and risk labels. Run `bash create-labels.sh` (GitHub CLI, signed in).",
+        "- `pr_checks.py`, `pr-checks.json`, `pr-checks-workflow.yml`: the pull-request checks a machine can do "
+        "(title format, no closing keywords in commits, a lane label, file ownership by path, `risk:high` on critical "
+        "paths). Copy the first two to `.github/governance/` and the workflow to "
+        "`.github/workflows/governance-pr-checks.yml`. Try it locally first: "
+        "`python3 pr_checks.py --config pr-checks.json --title \"cli: add import (#12)\" --labels lane:cli "
+        "--files changed.txt --commits commits.txt`."
+        + ("" if cfg["label_paths"] else " File ownership is not checked yet: set `label_paths` in the governance "
+           "config (for example `lane:cli=src/cli/**`) and scaffold again."),
     ]
     if "CODEOWNERS" in names:
         lines.append(f"- `CODEOWNERS`: add its lines to `.github/CODEOWNERS` and require code-owner review on "
@@ -324,6 +395,19 @@ def github_readme(cfg: dict[str, Any], names: list[str]) -> str:
     if "labeler.yml" in names:
         lines.append("- `labeler.yml` and `labeler-workflow.yml`: copy to `.github/labeler.yml` and "
                      "`.github/workflows/labeler.yml`. CI then sets `risk:high` on PRs that touch `critical_paths`.")
+    lines += [
+        "",
+        "## Branch protection on `" + cfg["default_branch"] + "`",
+        "",
+        "These rules have no script, because only the repository's settings can enforce them. Set them once; they",
+        "replace rule prose that a thread would otherwise have to remember:",
+        "",
+        "- Require a pull request before merging (no direct pushes): `ROLE-06`.",
+        "- Block force pushes: `PR-03`, `MRG-01`.",
+        "- Require status checks to pass: your CI and `governance pr checks`: `PR-02`, `CI-01`.",
+    ]
+    if "CODEOWNERS" in names:
+        lines.append("- Require review from Code Owners: contract approval and ruleset changes.")
     return "\n".join(lines) + "\n"
 
 
@@ -376,9 +460,8 @@ def main() -> int:
         if not tpl.is_file():
             continue
         rel = tpl.relative_to(TEMPLATE_DIR)
-        if rel == CONTRACT_TEMPLATE and not flags["acceptance_contracts"]:
-            continue
-        if rel == DISPATCHER_TEMPLATE and not flags["dispatcher"]:
+        needs = OPTIONAL_TEMPLATES.get(rel.as_posix())
+        if needs and not flags[needs]:
             continue
         results.append(write(out / rel, render(tpl.read_text(encoding="utf-8"), values, flags, rel.as_posix()),
                              args.force or (args.refresh and rel.as_posix() in REFRESHABLE)))
@@ -389,7 +472,12 @@ def main() -> int:
         results.append(write(out / "tools" / "acceptance-contracts.md", CONTRACT_METHOD.read_text(encoding="utf-8"), tool_force))
         results.append(write(out / "roadmap.yaml", roadmap_yml(cfg), args.force))
     if args.github:
-        files = {"create-labels.sh": labels_script(cfg)}
+        files = {
+            "create-labels.sh": labels_script(cfg),
+            "pr_checks.py": (SCRIPT_DIR / "pr_checks.py").read_text(encoding="utf-8"),
+            "pr-checks.json": json.dumps(pr_checks_config(cfg), indent=2) + "\n",
+            "pr-checks-workflow.yml": PR_CHECKS_WORKFLOW,
+        }
         if flags["in_repo"]:
             files["CODEOWNERS"] = codeowners(cfg)
             if cfg["critical_paths"]:

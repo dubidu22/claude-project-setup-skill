@@ -34,7 +34,12 @@ entries. You are replaced after one batch or at your first compression
   is its own thread (`THR-09`).
 - Grant merge go only when all three hold: the review thread's round 1 entry
   says `critical: no`, the latest round entry says `must_fix: 0`, and CI is
-  green. Anything else goes to the Coordinator.
+  green. `python3 tools/ledger_tool.py gate <N>` checks the first two and
+  says who may grant the go; run it, do not judge from memory. Anything else
+  goes to the Coordinator.
+- When `ledger_tool.py stats` shows the same kind of finding in more than
+  one PR, tell the Coordinator in the batch report: it needs a check or a
+  design change, not another reminder (`META-03`).
 {{escalation_line}}
 - Report to the Coordinator once per batch: PRs merged, findings deferred
   (issue links), anything escalated.

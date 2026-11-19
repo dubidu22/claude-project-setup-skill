@@ -16,6 +16,7 @@ It describes the system the generator encodes, not the generator itself.
 9. Cache-aware habits
 10. Operating mechanics: starting threads, shared files, the watchdog
 11. Authority order, and what is enforced by what
+12. What the rules rest on: checks before prose
 
 ---
 
@@ -210,13 +211,17 @@ where bad models cost the most.
 
 | Profile | lanes | replace after PRs / compressions | watchdog | NC rounds | audit | KB PRs | verbosity |
 |---------|-------|----------|----------|-----------|-------|--------|-----------|
-| frugal | 2 | 2 / 1 | 120 min | 1 | critical_only | per milestone/batch | ultra_terse |
+| frugal | 2 | 2 / 1 | 120 min | 2 | critical_only | per milestone/batch | ultra_terse |
 | balanced | 3 | 3 / 2 | 60 min | 2 | light_every_batch | daily | terse_batched |
 | max_velocity | 3 | 4 / 2 | 30 min | 2 | full_every_batch | daily | standard |
 
 `goal_turn_cap` (20 / 30 / 40) bounds a `/goal` loop on contract criteria.
 `cache_ttl_minutes` (60 or 5) is not part of a profile; it follows from how
 the owner pays (section 9).
+
+No profile goes below two review rounds for routine PRs: with one round
+nobody confirms that the fix worked, and review and verification are where
+tokens pay off (section 12). The profiles save on coordination instead.
 
 Pick **frugal** for solo side projects, long autonomy horizons, or private
 repos paying for Actions minutes. Pick **balanced** by default. Pick
@@ -259,16 +264,16 @@ D-001. The invariants are the things that, when violated, caused real damage:
 | header | — | `version` (minor number goes up whenever a regeneration changes the content), `date` (of the last generation), project, repository, owner, timezone, `authority` precedence list (section 11) |
 | `project_profile` | — | stack preset, environment, target platforms, fast checks, local env, lanes, labels, mapping note, `critical_paths`, `workspace_root`, `state_file`, `plans_dir`, `rules_by_role`, and for an in-repo workspace `default_branch` and `governance_branch` |
 | `execution_profile` | — | `model_routing` (6 slots) and `token_economy` (profile name plus numbers and enums) |
-| `meta` | META-01..02 | ruleset edits are critical; state lives elsewhere |
+| `meta` | META-01..03 | ruleset edits are critical; state lives elsewhere; a correction given twice becomes a check, not a rule |
 | `roles` | ROLE-01..14 | one rule per role, plus owner hand steps and the approval rule; ROLE-10 (specify) and ROLE-11 (dispatcher) only when enabled |
 | `autonomy` | AUTO-01..03 | horizon, what waits for the owner, working ahead |
 | `lanes` | LANE-01..04 | batching, concurrency cap, ownership (written from the labels that exist), release-branch exception |
 | `threads_and_watchdog` | THR-01..14 | onboarding from the extract + fitness check, replacement, watchdog, one writer per file, how threads are started (THR-10, coordinator and dispatcher), planned compaction (THR-11, Claude Code only), the governance branch and its worktree (THR-13) and the default branch as the copy that counts (THR-14), both in-repo only |
 | `plans_and_criticality` | PLAN-01..05, CRIT-01..03 | plan-before-code, acceptance contracts (PLAN-03..05, when `acceptance_contracts` is on), what is critical, what critical requires, who decides it |
-| `pull_requests_and_reviews` | PR-01..03, REV-01..04, MRG-01 | title format, CI-before-review, branch freeze, round caps and the hard stop, report format, criterion proof (REV-03), escalation by model (REV-04), merge protocol with "no open must-fix finding" |
-| `testing_and_ci` | TST-01..02, CI-01 | tests first, never weaken tests, fast vs full matrix |
+| `pull_requests_and_reviews` | PR-01..03, REV-01..05, MRG-01 | title format, CI-before-review, branch freeze, round caps and the hard stop, report format, criterion proof (REV-03), escalation by model (REV-04), fixes at the root and finding kinds (REV-05), merge protocol with "no open must-fix finding" and the ledger gate |
+| `testing_and_ci` | TST-01..02, VER-01, CI-01 | tests first, never weaken tests, proof by running the product as a user would (VER-01, with `runtime_verification`), fast vs full matrix |
 | `github_kb_and_release` | GH-01, KB-01, REL-01 | issues same day, decision logging with the owner's message quoted, release branching |
-| `hard_invariants_and_owner_prefs` | INV-01.., PREF-01 | licence gate; then, each only if configured: layer-boundary check, telemetry ban, custom invariants; owner timezone and formatting wishes |
+| `hard_invariants_and_owner_prefs` | INV-01.., PREF-01 | licence gate; then, each only if configured: layer-boundary check, telemetry ban, custom invariants; each says what enforces it ("Enforced by: ..."); owner timezone and formatting wishes |
 
 Nothing project-specific is built in. What used to be written into every
 ruleset is now an option: `owner_prefs` (formatting wishes), `critical_areas`
@@ -488,7 +493,10 @@ a tool and which rest on threads following the rules:
 | An approved contract was not edited afterwards | `contract_tool.py lint`, `goal` and `pickup`: the contract's hash, the owner's quoted message and the coordinator's pickup record must agree; at pickup the content must match the hash the owner names; in a repo it must also match the copy on the default branch |
 | Only the owner approves a contract or a ruleset change | in a repo: CODEOWNERS plus required code-owner review on the default branch, once the owner has set them up. Elsewhere: by rule only (`ROLE-03`) |
 | Labels and milestones exist before issues are created; no duplicate issues | `contract_tool.py issues --preflight` and `record-issue` |
-| No merge with an open must-fix finding; criticality confirmed by the reviewer | by rule (`MRG-01`, `CRIT-03`), visible afterwards in the ledger (`ledger_tool.py check`) |
+| No merge with an open must-fix finding; criticality confirmed by the reviewer | `ledger_tool.py gate <N>` before the merge (it reads the entries the review thread wrote, so it is as true as they are); visible afterwards with `ledger_tool.py check` |
+| PR title format, no closing keywords in commits, a lane label, file ownership by path, `risk:high` on critical paths | `pr_checks.py` in CI, once the owner has copied the workflow and made it a required check. Until then: by rule |
+| No force push, no direct push to the default branch, CI green before merge | branch protection, once the owner has set it. Until then: by rule |
+| Invariants | whatever each names after "Enforced by:"; the audit lists those that name nothing (A15) |
 | Round caps, the hard stop, replacement, the watchdog | by rule; visible afterwards in round reports and ledger entries |
 
 What remains open: in a claude.ai Project nothing technical stops a thread
@@ -501,3 +509,72 @@ default branch (`git remote set-head origin --auto`; a normal clone does).
 Where it does not, `goal` and `pickup` refuse rather than trust the ruleset. The design makes a silent change take several
 coordinated edits in files owned by other roles; it does not make it
 impossible. The audit exists to look.
+
+## 12. What the rules rest on: checks before prose
+
+This skill produces rules, and rules are the weakest way to make a thread do
+the right thing. A thread follows a rule when it has read it, remembers it
+and judges that it applies. A check does not depend on any of that. The
+order below is the order of trust, most reliable first (the ordering follows
+Lauren Tan's talk "All Code Is Slop (Except Mine)", AI Engineer, 2026):
+
+1. **The product's own code.** A design that makes the mistake impossible
+   beats every check: an API that cannot be misused, a folder structure that
+   says what may import what. Threads copy what they find, good or bad, so a
+   workaround left in place becomes the pattern the next thread follows.
+2. **Deterministic checks.** Lint rules, types, tests, CI checks, branch
+   protection. They fire every time and say exactly what is wrong; a lint
+   message that names the root cause teaches the next thread for free.
+3. **Verification.** Running the product as a user would and keeping the
+   evidence; where it pays, property tests or formal models of important
+   flows. This is also where most tokens are well spent.
+4. **Prose.** Rules, instructions, notes, comments: needed for what takes
+   judgement, and nothing else.
+
+How the generated setup applies this:
+
+- **A correction given twice becomes a check** (`META-03`, `REV-05`). The
+  review thread names the kind of each finding in its ledger entry, and
+  `ledger_tool.py stats` lists kinds seen in more than one PR. Those are the
+  candidates for a lint rule, a test, a CI check or a design change. Put the
+  check in first, so no new cases arrive, then clean up the old ones in the
+  same batch; what stays in the code keeps being copied. Adding a rule to
+  the ruleset is the last resort and needs the owner.
+- **A comment is not a fix** (`REV-05`). A code comment, a document or a note
+  that explains why a workaround is fine leaves the finding open. Comments
+  are not enforceable, go stale, and give the next thread a ready excuse.
+- **Things that need nuance get banned, not explained.** If an API or
+  pattern is misused again and again, the project forbids it in product code
+  with a lint rule and allows it in one named place. Record it as an
+  invariant with its check.
+- **Every invariant names what enforces it.** A custom invariant is written
+  as `"<sentence> [check: <lint rule, test or CI job>]"` and rendered as
+  "Enforced by: ...". Without a check it says "Enforced by: review only", and
+  the audit lists those (A15), because an invariant nobody checks holds only
+  until a thread forgets it.
+- **Pull-request rules that a machine can check are checked by a machine.**
+  `github-setup/` carries `pr_checks.py` with a workflow: title format, no
+  closing keywords in commits, a lane label, file ownership by path
+  (`label_paths`), `risk:high` on critical paths. Branch protection covers
+  force pushes, direct pushes and required checks. `ledger_tool.py gate <N>`
+  answers "may this PR be merged" from the ledger entries before every merge.
+- **Proof is evidence, not a claim** (`VER-01`, `REV-03`). Behaviour a user
+  can see is shown by running the product along the real user path, following
+  `kb/verification.md`, and the evidence is kept and named in the PR. The
+  reviewer looks at the evidence. `kb/features/` gives every feature one name
+  and lists all its entry points, so a proof through one convenient path is
+  not mistaken for the whole feature.
+- **Review rounds are not where to save.** Every profile allows at least two
+  rounds for routine PRs; a single round leaves nobody to confirm the fix.
+  The profiles save on coordination: fewer lanes, fewer messages, a longer
+  watchdog interval.
+- **The outcome is measured.** `ledger_tool.py stats` shows the share of
+  merged PRs that were reverted. A cheaper model or a leaner profile is an
+  improvement only if that number does not rise.
+
+**Foundations first.** All of this assumes the repository can tell a thread
+that its change is wrong. `scripts/repo_readiness.py` reports whether CI,
+tests, a linter, a type checker and a documented way to run the product
+exist. Where they do not, more lanes only produce more unchecked changes:
+start with one lane, a short autonomy horizon, and make the missing
+foundations the first work package.

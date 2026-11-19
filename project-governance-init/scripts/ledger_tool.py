@@ -5,6 +5,7 @@ Read the ledger: one small file per PR and per review round (ledger/README.md).
     python3 ledger_tool.py table [--ledger DIR]   # PRs and rounds as markdown tables
     python3 ledger_tool.py stats [--ledger DIR]   # rounds per PR, compactions per PR, PRs per thread
     python3 ledger_tool.py check [--ledger DIR]   # entries with missing or malformed fields (exit 1 if any)
+    python3 ledger_tool.py gate <PR number>       # may this PR be merged? exit 0 only if the entries say yes (MRG-01)
 
 The ledger directory defaults to `../ledger` next to this script's folder (the
 scaffolded `tools/`), or `./ledger`. This tool only reads. Entries are flat
@@ -20,6 +21,7 @@ from pathlib import Path
 
 PR_KEYS = ("pr", "opened", "thread", "lane", "labels", "critical", "compactions")
 ROUND_KEYS = ("pr", "round", "date", "thread", "head", "verdict", "must_fix", "should_fix", "report")
+REVERT_KEYS = ("pr", "date", "by", "reason")
 INT_KEYS = {"pr", "round", "compactions", "must_fix", "should_fix"}
 
 
@@ -53,12 +55,61 @@ def load(ledger: Path) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
     return prs, rounds
 
 
+def load_reverts(ledger: Path) -> list[dict[str, str]]:
+    folder = ledger / "reverts"
+    return [dict(read_entry(p), _file=p.name) for p in sorted(folder.glob("*.yaml"))] if folder.is_dir() else []
+
+
+def kinds_of(entry: dict[str, str]) -> list[str]:
+    """Finding kinds named in a round entry: `kinds: timer-workaround, missing-test`."""
+    return [k.strip().lower() for k in entry.get("kinds", "").split(",") if k.strip()]
+
+
+def gate(pr: str, prs: list[dict[str, str]], rounds: list[dict[str, str]]) -> tuple[bool, list[str]]:
+    """Whether the ledger entries allow PR `pr` to be merged, and why or why not."""
+    mine = sorted((r for r in rounds if r.get("pr") == pr), key=lambda r: num(r.get("round")))
+    reasons: list[str] = []
+    if not any(e.get("pr") == pr for e in prs):
+        reasons.append(f"no prs/pr-{pr}.yaml: the implementation thread has not written the PR's ledger entry")
+    if not mine:
+        reasons.append("no review round is recorded")
+        return False, reasons
+    first = next((r for r in mine if r.get("round") == "1"), None)
+    if first is None or first.get("critical") not in ("yes", "no"):
+        reasons.append("round 1 does not record the reviewer's `critical: yes|no` (CRIT-03)")
+    last = mine[-1]
+    if last.get("merged"):
+        reasons.append(f"already merged ({last['merged']})")
+    if not re.fullmatch(r"\d+", last.get("must_fix", "")):
+        reasons.append(f"round {last.get('round')} does not say how many must-fix findings are open")
+    elif int(last["must_fix"]) != 0:
+        reasons.append(f"round {last.get('round')} has {last['must_fix']} open must-fix finding(s)")
+    if last.get("verdict") != "approved":
+        reasons.append(f"round {last.get('round')} verdict is '{last.get('verdict', '')}', not approved")
+    if reasons:
+        return False, reasons
+    critical = first.get("critical") == "yes"  # type: ignore[union-attr]
+    who = "the coordinator (the PR is critical)" if critical else "the dispatcher, where there is one, or the coordinator (confirmed non-critical)"
+    return True, [f"round {last.get('round')}: approved, 0 must-fix, head {last.get('head', '?')}. Merge go comes from {who}; "
+                  "CI must be green on that head"]
+
+
 def num(v: str | None, default: int = 0) -> int:
     return int(v) if v is not None and re.fullmatch(r"\d+", v) else default
 
 
-def problems(prs: list[dict[str, str]], rounds: list[dict[str, str]]) -> list[str]:
+def problems(prs: list[dict[str, str]], rounds: list[dict[str, str]], reverts: list[dict[str, str]] | None = None) -> list[str]:
     out: list[str] = []
+    merged = {r.get("pr") for r in rounds if r.get("merged")}
+    for e in reverts or []:
+        where = f"reverts/{e['_file']}"
+        for k in REVERT_KEYS:
+            if not e.get(k):
+                out.append(f"{where}: `{k}` is missing")
+        if e.get("pr") and not re.fullmatch(r"\d+", e["pr"]):
+            out.append(f"{where}: `pr` must be a whole number, got '{e['pr']}'")
+        elif e.get("pr") and e["pr"] not in merged:
+            out.append(f"{where}: PR #{e['pr']} has no round entry that records a merge")
     for kind, entries, keys in (("prs", prs, PR_KEYS), ("rounds", rounds, ROUND_KEYS)):
         seen: set[tuple[str, str]] = set()
         for e in entries:
@@ -98,11 +149,14 @@ def status_of(pr: str, rounds: list[dict[str, str]]) -> tuple[str, int, str]:
     return f"round {last.get('round')}: {last.get('verdict', '?')}, {num(last.get('must_fix'))} must-fix", len(mine), confirmed
 
 
-def table(prs: list[dict[str, str]], rounds: list[dict[str, str]]) -> str:
+def table(prs: list[dict[str, str]], rounds: list[dict[str, str]], reverts: list[dict[str, str]] | None = None) -> str:
+    undone = {e.get("pr"): e.get("by", "?") for e in reverts or []}
     lines = ["## PRs", "", "| PR | Opened | Thread | Lane | Labels | Package | Critical (author / reviewer) | Compactions | Rounds | Status |",
              "|----|--------|--------|------|--------|---------|------------------------------|-------------|--------|--------|"]
     for e in sorted(prs, key=lambda e: num(e.get("pr"))):
         status, n, confirmed = status_of(e.get("pr", ""), rounds)
+        if e.get("pr") in undone:
+            status += f", reverted by {undone[e.get('pr')]}"
         lines.append(f"| #{e.get('pr', '?')} | {e.get('opened', '')} | {e.get('thread', '')} | {e.get('lane', '')} | {e.get('labels', '')} | "
                      f"{e.get('package', '-') or '-'} | {e.get('critical', '-')} / {confirmed} | {e.get('compactions', '0')} | {n} | {status} |")
     lines += ["", "## Review rounds", "", "| PR | Round | Date | Thread | Head | Verdict | Must-fix | Should-fix | Report |",
@@ -113,7 +167,7 @@ def table(prs: list[dict[str, str]], rounds: list[dict[str, str]]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def stats(prs: list[dict[str, str]], rounds: list[dict[str, str]]) -> str:
+def stats(prs: list[dict[str, str]], rounds: list[dict[str, str]], reverts: list[dict[str, str]] | None = None) -> str:
     if not prs:
         return "No PR entries yet.\n"
     per_pr = {e.get("pr", ""): len([r for r in rounds if r.get("pr") == e.get("pr")]) for e in prs}
@@ -136,12 +190,29 @@ def stats(prs: list[dict[str, str]], rounds: list[dict[str, str]]) -> str:
         if name.endswith(" [review]"):
             threads[name] = len({r.get("pr") for r in rounds if (r.get("thread") or "(no thread name)") + " [review]" == name})
     lines += [f"  {name}: {n}" for name, n in sorted(threads.items())]
+    merged = {r.get("pr") for r in rounds if r.get("merged")}
+    undone = sorted({e.get("pr", "") for e in reverts or [] if e.get("pr") in merged}, key=num)
+    share = f" ({100 * len(undone) / len(merged):.1f}%)" if merged else ""
+    lines.append(f"Reverted: {len(undone)} of {len(merged)} merged PRs{share}{': ' + ', '.join('#' + p for p in undone) if undone else ''}. "
+                 "This is the number a cheaper model or a leaner profile must not raise.")
+    seen: dict[str, list[str]] = {}
+    for r in sorted(rounds, key=lambda r: (num(r.get("pr")), num(r.get("round")))):
+        for k in kinds_of(r):
+            if r.get("pr", "?") not in seen.setdefault(k, []):
+                seen[k].append(r.get("pr", "?"))
+    repeated = {k: v for k, v in seen.items() if len(v) > 1}
+    if repeated:
+        lines.append("Finding kinds seen in more than one PR (each needs a check or a design change, REV-05, META-03):")
+        lines += [f"  {k}: {', '.join('#' + p for p in v)}" for k, v in sorted(repeated.items())]
+    else:
+        lines.append("Finding kinds seen in more than one PR: none.")
     return "\n".join(lines) + "\n"
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Read the per-PR and per-round ledger entries")
-    ap.add_argument("cmd", choices=["table", "stats", "check"])
+    ap.add_argument("cmd", choices=["table", "stats", "check", "gate"])
+    ap.add_argument("pr", nargs="?", help="PR number (gate only)")
     ap.add_argument("--ledger", type=Path, help="ledger directory (default: ../ledger next to this script, or ./ledger)")
     args = ap.parse_args()
     here = Path(__file__).resolve().parent.parent / "ledger"
@@ -150,13 +221,23 @@ def main() -> int:
         print(f"error: no ledger directory at {ledger}", file=sys.stderr)
         return 2
     prs, rounds = load(ledger)
+    reverts = load_reverts(ledger)
+    if args.cmd == "gate":
+        number = (args.pr or "").lstrip("#")
+        if not re.fullmatch(r"\d+", number):
+            print("error: gate needs a PR number, e.g. `ledger_tool.py gate 12`", file=sys.stderr)
+            return 2
+        ok, reasons = gate(number, prs, rounds)
+        print(f"PR #{number}: {'may be merged' if ok else 'must not be merged'}")
+        print("\n".join(f"  - {r}" for r in reasons))
+        return 0 if ok else 1
     if args.cmd == "table":
-        print(table(prs, rounds), end="")
+        print(table(prs, rounds, reverts), end="")
         return 0
     if args.cmd == "stats":
-        print(stats(prs, rounds), end="")
+        print(stats(prs, rounds, reverts), end="")
         return 0
-    found = problems(prs, rounds)
+    found = problems(prs, rounds, reverts)
     print("\n".join(found) if found else f"{len(prs)} PR entries and {len(rounds)} round entries, no problems.")
     return 1 if found else 0
 

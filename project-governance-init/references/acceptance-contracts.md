@@ -134,6 +134,12 @@ A criterion is one observable, binary statement with a way to check it.
 `verify.type` is one of:
 - `test`: an automated test; `verify.how` names the test or test file.
 - `command`: a command and its expected result.
+- `runtime`: the product is started and used the way a user would, following
+  `kb/verification.md`, and the evidence is kept (a screenshot or recording,
+  a transcript, a response body, a log line). `verify.how` names the feature
+  as `kb/features/` does, the steps, and the end state that shows it works.
+  Use it for behaviour a user sees and no test covers end to end. It must go
+  through the real path: no internal setter, no test-only endpoint.
 - `inspection`: a reviewer checks a named artefact (file, config, header) against
   a stated condition. Use sparingly.
 - `manual`: only the owner can check it (device, hearing, real account). These

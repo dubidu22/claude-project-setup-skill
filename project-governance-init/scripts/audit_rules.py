@@ -422,6 +422,9 @@ def run_checks(data: dict[str, Any], rules: list[Rule], raw_text: str, state_tex
             v = token[key]
             if isinstance(v, bool) or to_int(v) is None or str(v).strip() != str(to_int(v)):
                 f.append(Finding("A05", "ERROR", f"{key} must be a whole number, got {v!r}; threads cannot act on it", "execution_profile"))
+        ncr_rounds = to_int(token.get("non_critical_max_review_rounds"))
+        if ncr_rounds == 1:
+            f.append(Finding("A05", "WARN", "non_critical_max_review_rounds=1 leaves no round in which the reviewer confirms the fix; review and verification are where tokens pay off, so save on coordination instead (2 is the lowest profile value)", "execution_profile"))
         rap = to_int(token.get("replace_after_prs"))
         if rap is not None and rap < 1:
             f.append(Finding("A05", "ERROR", "replace_after_prs must be at least 1", "execution_profile"))
@@ -595,6 +598,12 @@ def run_checks(data: dict[str, Any], rules: list[Rule], raw_text: str, state_tex
         other = f" (contradicts `{owner_contract[0].id}`)" if owner_contract else ""
         f.append(Finding("A11", "ERROR", f"`{thread_contract[0].id}` lets a thread approve or change an acceptance contract; only the owner approves, and a change is a new version" + other, "plans_and_criticality"))
 
+    # --- A15 invariants that rest on prose alone ---
+    prose_only = [r.id for r in rules if (r.id or "").startswith("INV-")
+                  and not re.search(r"Enforced by:\s*(?!review only)\S|enforced automatically \(", r.text, re.I)]
+    if prose_only:
+        f.append(Finding("A15", "INFO", f"{', '.join(prose_only)} {'is' if len(prose_only) == 1 else 'are'} enforced by review only. An invariant holds reliably once a lint rule, test or CI check enforces it; name that check in the config (`[check: ...]`, `licence_check`, `telemetry_check`)", "hard_invariants_and_owner_prefs"))
+
     # --- A12 per-role extracts in step with the ruleset ---
     if extracts:
         version, date = str(data.get("version", "")), str(data.get("date", ""))
@@ -660,7 +669,8 @@ def render_markdown(path: Path, findings: list[Finding], n_rules: int) -> str:
         lines.append("")
     lines.append("Codes: A01 header, A02 ids, A03 scopes, A04 lanes/labels, A05 execution profile, "
                  "A06 state leakage, A07 dead history, A08 token bloat, A09 contradiction patterns, A10 state file, "
-                 "A11 optional roles, A12 per-role extracts, A13 authority order, A14 comparison with the default branch.")
+                 "A11 optional roles, A12 per-role extracts, A13 authority order, A14 comparison with the default branch, "
+                 "A15 invariants without a check.")
     return "\n".join(lines) + "\n"
 
 

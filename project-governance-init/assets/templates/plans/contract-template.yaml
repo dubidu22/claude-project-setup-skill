@@ -27,7 +27,7 @@ criteria:
     priority: must           # must | should | could (could items leave before approval)
     category: happy_path     # see references/acceptance-contracts.md section 5
     verify:
-      type: test             # test | command | inspection | manual
+      type: test             # test | command | runtime | inspection | manual
       how: "<test name, or command and expected result>"
     source:
       kind: owner            # owner | research | repo | assumption

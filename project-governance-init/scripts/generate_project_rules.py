@@ -37,13 +37,13 @@ from typing import Any
 
 TOKEN_PROFILES: dict[str, dict[str, Any]] = {
     "frugal": {
-        "description": "Minimizes token spend while keeping strong models on critical paths.",
+        "description": "Minimizes token spend on coordination while keeping strong models on critical paths and two review rounds.",
         "max_concurrent_lanes": 2,
         "replace_at_compressions": 1,
         "replace_after_prs": 2,
         "watchdog_interval_minutes": 120,
         "watchdog_max_nudges": 3,
-        "non_critical_max_review_rounds": 1,
+        "non_critical_max_review_rounds": 2,
         "critical_max_review_rounds": 4,
         "batch_audit_mode": "critical_only",
         "kb_pr_cadence": "per_milestone_or_batch",
@@ -318,7 +318,11 @@ def default_config(project_name: str = "my-project") -> dict[str, Any]:
         "local_ui_loopback_only": False,
         "github_rest_only": False,
         "banned_licences": ["AGPL", "SSPL", "non-commercial", "unclear"],
+        "licence_check": "",
+        "telemetry_check": "",
         "custom_invariants": [],
+        "label_paths": [],
+        "runtime_verification": True,
         "owner_prefs": [],
         "acceptance_contracts": True,
         "dispatcher": True,
@@ -404,6 +408,17 @@ def validate_config(cfg: dict[str, Any]) -> None:
     for label in cfg.get("ownership_labels") or []:
         if isinstance(label, str) and not re.fullmatch(r"lane:[a-z0-9_-]+", label):
             problems.append(f"ownership_labels: '{label}' must look like lane:<name> (lower case, digits, - or _)")
+    labels = cfg.get("ownership_labels") if isinstance(cfg.get("ownership_labels"), list) else []
+    for entry in cfg.get("label_paths") if isinstance(cfg.get("label_paths"), list) else []:
+        if not isinstance(entry, str):
+            continue
+        label, sep, glob = entry.partition("=")
+        if not sep or not glob.strip() or label.strip() != label or glob.strip() != glob:
+            problems.append(f"label_paths: '{entry}' must look like lane:<name>=<glob>, e.g. lane:cli=src/cli/**")
+        elif label not in labels:
+            problems.append(f"label_paths: '{entry}' names a label that is not in ownership_labels")
+        elif glob.startswith("/") or ".." in glob.split("/"):
+            problems.append(f"label_paths: '{entry}': the glob is a path from the repository root, without a leading / or ..")
     for key in ("default_branch", "governance_branch"):
         v = cfg.get(key)
         if isinstance(v, str) and v and not re.fullmatch(r"[A-Za-z0-9._/-]+", v):
@@ -708,6 +723,28 @@ def run_wizard() -> dict[str, Any]:
     })
 
 
+CHECK_SUFFIX = re.compile(r"\s*\[check:\s*(.*?)\s*\]\s*$")
+
+
+def split_check(text: str) -> tuple[str, str]:
+    """'Rule text [check: tests/x.py]' -> ('Rule text', 'tests/x.py'); no suffix -> (text, '')."""
+    m = CHECK_SUFFIX.search(text)
+    if not m:
+        return text.strip(), ""
+    return text[: m.start()].strip(), m.group(1).strip().rstrip(".")
+
+
+def enforced_by(check: str) -> str:
+    """The sentence that says what enforces an invariant. Rule prose alone is the weakest form."""
+    check = one_line(check).rstrip(".")
+    return " Enforced by: " + (check if check and check.lower() not in ("none", "review", "review only") else "review only") + "."
+
+
+def with_period(text: str) -> str:
+    text = one_line(text)
+    return text if text.endswith((".", "!", "?")) else text + "."
+
+
 def today_iso() -> str:
     """Generation date. GOVERNANCE_TODAY overrides it so tests are reproducible."""
     return os.environ.get("GOVERNANCE_TODAY") or datetime.date.today().isoformat()
@@ -791,7 +828,8 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
               + " It never edits the pending file."),
         *rule("ROLE-09", "audit",
               "When triggered by execution_profile.token_economy.batch_audit_mode, an audit thread inspects the merged "
-              "batch diff for cross-PR inconsistencies and contract touches only, and writes its findings to "
+              "batch diff for cross-PR inconsistencies, contract touches, and workarounds or patterns the project "
+              "has moved away from that appear in more than one PR (later threads copy what they find), and writes its findings to "
               + ws + "/ledger/audits/."),
     ]
     if contracts:
@@ -937,7 +975,7 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
             *rule("PLAN-04", "implementation",
                   "One work package is one plan and one PR. Plans cite the acceptance-contract criterion ids they "
                   "cover (read them with contract_tool.py brief); the PR body lists each covered criterion with the "
-                  "command run and its result. A /goal loop on criteria stops at "
+                  "command run and its result, or the evidence file for a runtime step. A /goal loop on criteria stops at "
                   "execution_profile.token_economy.goal_turn_cap turns."),
             *rule("PLAN-05", "coordinator",
                   "A milestone closes only when every must criterion and the core probe pass and every should "
@@ -984,8 +1022,13 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
     if contracts:
         reviews += rule("REV-03", "review",
                         "Read the diff and the acceptance contract before the plan and PR description. Confirm each "
-                        "criterion the PR claims from CI output or by re-running its verify step; a claimed criterion "
-                        "without passing proof is a must-fix finding.")
+                        "criterion the PR claims from CI output, by re-running its verify step, or from the evidence "
+                        "of a runtime step; a claimed criterion without passing proof is a must-fix finding.")
+    reviews += rule("REV-05", "review",
+                    "A finding is fixed at its root. A code comment, a document or a new rule that explains a "
+                    "workaround is not a fix and leaves the finding open. Name each finding's kind in the round's "
+                    "ledger entry; a kind already seen in an earlier PR is fixed together with a check that stops it "
+                    "from coming back (lint rule, type, test or CI check) or a design change that removes it.")
     if esc:
         after = int(cfg["rounds_after_escalation"])
         reviews += rule("REV-04", ops,
@@ -996,14 +1039,15 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
                         "the PR for the coordinator. A running thread never changes its model (THR-09).")
     reviews += rule("MRG-01", "review",
                     "Squash-merge only on " + merge_go + ", pinned to the reviewed head SHA, with no open B/M finding "
-                    "in the latest round report and required CI green (and all target_platforms green for critical "
-                    "PRs). If behind " + main_branch + ", update via merge commit (never force-push), re-verify diff "
-                    "and CI, and merge on the new SHA.")
+                    "in the latest round report (ledger_tool.py gate <N> passes) and required CI green (and all "
+                    "target_platforms green for critical PRs). If behind " + main_branch + ", update via merge commit "
+                    "(never force-push), re-verify diff and CI, and merge on the new SHA.")
 
     # ---- invariants ---------------------------------------------------------
     inv: list[str] = rule("INV-01", "implementation",
                           "Licence gate: every new dependency, asset, model, or sample names its licence in the PR "
-                          "body and licence manifest. Banned licences: " + ", ".join(cfg["banned_licences"]) + ".")
+                          "body and licence manifest. Banned licences: " + ", ".join(cfg["banned_licences"]) + "."
+                          + enforced_by(cfg["licence_check"]))
     inv_idx = 2
     if cfg["layer_boundary_check"].strip():
         inv += rule(f"INV-{inv_idx:02d}", "implementation",
@@ -1013,10 +1057,12 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
     if cfg["no_telemetry"]:
         inv += rule(f"INV-{inv_idx:02d}", "implementation",
                     "Zero telemetry, analytics, crash uploads, or unrequested network calls."
-                    + (" Local web UIs bind strictly to 127.0.0.1." if cfg["local_ui_loopback_only"] else ""))
+                    + (" Local web UIs bind strictly to 127.0.0.1." if cfg["local_ui_loopback_only"] else "")
+                    + enforced_by(cfg["telemetry_check"]))
         inv_idx += 1
     for custom_rule in cfg["custom_invariants"]:
-        inv += rule(f"INV-{inv_idx:02d}", "implementation", custom_rule)
+        custom_text, custom_check = split_check(custom_rule)
+        inv += rule(f"INV-{inv_idx:02d}", "implementation", with_period(custom_text) + enforced_by(custom_check))
         inv_idx += 1
     inv += rule("PREF-01", "all",
                 " ".join(["Report times to " + cfg["owner_name"] + " in " + cfg["timezone"] + ".", *cfg["owner_prefs"]]))
@@ -1033,6 +1079,7 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
         f"  file_ownership_labels: {yaml_list(labels)}",
         f"  lane_mapping_note: {yaml_quote(cfg['lane_mapping_note'])}",
         *([f"  critical_paths: {yaml_list(cfg['critical_paths'])}"] if cfg["critical_paths"] else []),
+        *([f"  label_paths: {yaml_list(cfg['label_paths'])}"] if cfg["label_paths"] else []),
         f"  workspace_root: {yaml_quote(ws)}",
         f"  state_file: {yaml_quote(ws + '/project-state.yaml')}",
         f"  plans_dir: {yaml_quote(ws + '/plans')}",
@@ -1101,6 +1148,10 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
         *rule("META-02", "coordinator",
               "Volatile runtime state (active milestones, pause flags, notification triggers, autonomy message IDs) "
               "lives in project-state.yaml, never hardcoded into static rules."),
+        *rule("META-03", "all",
+              "A correction that has to be given a second time becomes a check in the product repository (lint rule, "
+              "type, test, CI check) or a design change that makes the mistake impossible. Prose is the last resort: "
+              "a new rule here needs the owner (META-01), and comments or notes do not bind the next thread."),
         "",
         "roles:",
         *roles,
@@ -1134,6 +1185,12 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
         *rule("TST-02", "implementation",
               "Never weaken, skip, or delete a failing test to turn CI green. Flaky tests without code cause are "
               "quarantined same-day with a linked GitHub issue and must be fixed before release."),
+        *(rule("VER-01", "implementation",
+               "Behaviour a user can see is proven by running the product the way a user would, following " + ws
+               + "/kb/verification.md: the real path, no test-only shortcut or internal setter, with the evidence "
+               "file kept and named in the PR body. A PR that adds or changes such a feature updates " + ws
+               + "/kb/features/ in the same change. A journey that fails is reported, never weakened to pass.")
+          if cfg["runtime_verification"] else []),
         *rule("CI-01", "all",
               "Fast checks run automatically on PRs; full target_platforms matrix runs on " + main_branch
               + ", release/**, and via explicit full-CI dispatch/label on critical PRs (including critical PRs into "
@@ -1453,6 +1510,15 @@ def check_output(rules_text: str, state_text: str, extracts: dict[str, str], cfg
 # Migration: derive a config from an existing (older or hand-edited) ruleset
 # ----------------------------------------------------------------------------
 
+def split_enforced(text: str) -> tuple[str, str]:
+    """'Rule. Enforced by: X.' -> ('Rule.', 'X'); 'review only' and a missing sentence give ''."""
+    m = re.search(r"\s*Enforced by:\s*(.+?)\.?\s*$", text)
+    if not m:
+        return text.strip(), ""
+    check = m.group(1).strip()
+    return text[: m.start()].strip(), "" if check.lower() == "review only" else check
+
+
 def derive_config(rules_path: Path, state_path: Path | None) -> tuple[dict[str, Any], list[str]]:
     """Read an existing ruleset and return (config, notes). Nothing is written."""
     sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -1525,6 +1591,8 @@ def derive_config(rules_path: Path, state_path: Path | None) -> tuple[dict[str, 
             cfg[key] = str(prof[key])
     if isinstance(prof.get("critical_paths"), list):
         cfg["critical_paths"] = [str(x) for x in prof["critical_paths"]]
+    if isinstance(prof.get("label_paths"), list):
+        cfg["label_paths"] = [str(x) for x in prof["label_paths"]]
 
     execp = data.get("execution_profile") if isinstance(data.get("execution_profile"), dict) else {}
     routing = execp.get("model_routing") if isinstance(execp.get("model_routing"), dict) else {}
@@ -1616,16 +1684,19 @@ def derive_config(rules_path: Path, state_path: Path | None) -> tuple[dict[str, 
         if not (r.id or "").startswith("INV-"):
             continue
         if r.text.startswith("Licence gate"):
-            m = re.search(r"Banned licences:\s*(.+?)\.?$", r.text)
+            body, check = split_enforced(r.text)
+            m = re.search(r"Banned licences:\s*(.+?)\.?$", body)
             if m:
                 cfg["banned_licences"] = [x.strip() for x in m.group(1).split(",") if x.strip()]
+            cfg["licence_check"] = check
         elif r.text.startswith("Architectural layer boundaries"):
             m = re.search(r"enforced automatically \((.+?)\);", r.text)
             cfg["layer_boundary_check"] = m.group(1) if m else "import linting"
         elif r.text.startswith("Zero telemetry"):
-            pass
+            cfg["telemetry_check"] = split_enforced(r.text)[1]
         else:
-            customs.append(r.text)
+            body, check = split_enforced(r.text)
+            customs.append(body + (f" [check: {check}]" if check else ""))
     cfg["custom_invariants"] = customs
 
     if state_path and state_path.is_file():
