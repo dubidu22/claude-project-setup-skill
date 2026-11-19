@@ -47,7 +47,8 @@ critical: no                  # round 1: the reviewer's own finding from the dif
 verdict: changes_requested    # approved | changes_requested
 must_fix: 2                   # open B/M findings after this round
 should_fix: 1
-kinds: "timer-workaround, missing-test"   # a short name per kind of finding, reused across PRs (REV-05)
+kinds: "timer-workaround, missing-test"   # a short name per kind of finding, reused across PRs (REV-05);
+                              # use narrating-comment and unsolicited-file for PR-05 findings
 report: plans/review-pr12-round1.md
 merged: ""                    # merge commit SHA, last round only
 ```

@@ -335,13 +335,14 @@ def pr_checks_config(cfg: dict[str, Any]) -> dict[str, Any]:
         "lock_label": "lane:infra" if {"lane:infra", "lane:core"} <= set(labels) else "",
         "locked_label": "lane:core" if {"lane:infra", "lane:core"} <= set(labels) else "",
         "critical_paths": list(cfg["critical_paths"]),
+        "doc_paths": list(cfg["doc_paths"]),
         "governance_paths": [ws + "/**"] if cfg["environment"] == "claude_code" and ws else [],
     }
 
 
 PR_CHECKS_WORKFLOW = """\
 # Runs the pull-request checks a machine can do (title, closing keywords, lane label, file ownership,
-# critical paths), so they are not left to a thread remembering a rule. Copy to
+# critical paths, new markdown files, narrating comments), so they are not left to a thread remembering a rule. Copy to
 # .github/workflows/governance-pr-checks.yml, with pr_checks.py and pr-checks.json in .github/governance/.
 # Then make this check required in the branch protection of the default branch.
 # Not run by the skill's own tests: check the syntax and the action versions before relying on it.
@@ -368,9 +369,10 @@ jobs:
         run: |
           git diff --name-status "$PR_BASE...$PR_HEAD" > "$RUNNER_TEMP/changed.txt"
           git log --format=%B "$PR_BASE..$PR_HEAD" > "$RUNNER_TEMP/commits.txt"
+          git diff "$PR_BASE...$PR_HEAD" > "$RUNNER_TEMP/diff.txt"
           python3 .github/governance/pr_checks.py --config .github/governance/pr-checks.json \\
             --title "$PR_TITLE" --labels "$PR_LABELS" \\
-            --files "$RUNNER_TEMP/changed.txt" --commits "$RUNNER_TEMP/commits.txt"
+            --files "$RUNNER_TEMP/changed.txt" --commits "$RUNNER_TEMP/commits.txt" --diff "$RUNNER_TEMP/diff.txt"
 """
 
 
@@ -384,7 +386,8 @@ def github_readme(cfg: dict[str, Any], names: list[str]) -> str:
         "- `create-labels.sh`: creates the lane and risk labels. Run `bash create-labels.sh` (GitHub CLI, signed in).",
         "- `pr_checks.py`, `pr-checks.json`, `pr-checks-workflow.yml`: the pull-request checks a machine can do "
         "(title format, no closing keywords in commits, a lane label, file ownership by path, `risk:high` on critical "
-        "paths). Copy the first two to `.github/governance/` and the workflow to "
+        "paths, no new markdown file outside `doc_paths`, and a warning for added comments that narrate the change, "
+        "`PR-05`). Copy the first two to `.github/governance/` and the workflow to "
         "`.github/workflows/governance-pr-checks.yml`. Try it locally first: "
         "`python3 pr_checks.py --config pr-checks.json --title \"cli: add import (#12)\" --labels lane:cli "
         "--files changed.txt --commits commits.txt`."
