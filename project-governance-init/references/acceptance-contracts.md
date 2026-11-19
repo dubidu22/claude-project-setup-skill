@@ -206,10 +206,28 @@ default branch only by pull request, and with CODEOWNERS and required
 code-owner review that pull request needs the owner's review. Threads work
 on the governance branch, which is not protected, so the tool does not trust
 the copy there: `lint`, `goal` and `pickup` compare an approved contract
-with `origin/<default_branch>` (run `git fetch` first) and fail if it
+with the default branch on the remote (run `git fetch` first) and fail if it
 differs, if its approval fields differ, or if it is not on that branch at
 all. Rewriting the contract, the owner's message and the pickup record
 together on the governance branch therefore no longer passes.
+
+Two things keep that comparison honest:
+
+- **Which branch is the default comes from git, not from the ruleset.** The
+  ruleset threads read sits on the same unprotected branch, so its
+  `default_branch` line could be pointed somewhere else. The tool takes the
+  remote's own default branch (`origin/HEAD`) and reports an error if the
+  ruleset disagrees. Where the checkout does not record it (run `git remote
+  set-head origin --auto` once), the ruleset's word is used with a warning.
+  The ruleset, its config, the per-role extracts and the roadmap next to the
+  contract are compared with the default branch as well (C040).
+- **It cannot be skipped quietly.** `goal` and `pickup` have no switch to
+  turn it off, and they refuse whenever it was weakened: an unknown
+  `origin/HEAD`, a missing `origin/<branch>`, a branch compared with itself,
+  an in-repo workspace that is not a git checkout, or a protected file that
+  differs. `lint --no-git` exists for looking at a file elsewhere and reports
+  the skip as a warning. A local repository without a remote and a claude.ai
+  Project outside git get a note and carry on.
 
 In a claude.ai Project there is no git and no such barrier. There the three
 records make a silent change take coordinated edits in files owned by other

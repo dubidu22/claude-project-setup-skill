@@ -17,12 +17,51 @@ from conftest import EVALS, SKILL, errors, findings, run
 CONTRACT = "plans/contract-001-csv-import.yaml"
 
 
+def git(cwd, *args):
+    r = subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args], cwd=cwd, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    return r.stdout
+
+
 @pytest.fixture
-def ws(tmp_path: Path) -> Path:
-    """The specify-plan-change fixture: a generated workspace with an approved, picked-up contract."""
+def plain(tmp_path: Path) -> Path:
+    """The specify-plan-change fixture outside git: a generated workspace with an approved, picked-up contract."""
     r = subprocess.run(["bash", str(EVALS / "specify-plan-change" / "place-files.sh")], cwd=tmp_path, capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
     return tmp_path / "governance"
+
+
+@pytest.fixture
+def ws(plain: Path) -> Path:
+    """The same workspace as a git repo: everything reviewed on main, threads working on the governance branch."""
+    root = plain.parent
+    git(root, "init", "-q", "-b", "main")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "approved contract, reviewed by the owner")
+    git(root, "checkout", "-q", "-b", "governance")
+    return plain
+
+
+@pytest.fixture
+def repo(ws: Path) -> Path:
+    return ws
+
+
+@pytest.fixture
+def cloned(ws: Path) -> Path:
+    """As ws, with a remote whose default branch (origin/HEAD) the checkout knows, like a normal clone."""
+    root = ws.parent
+    bare = root.parent / (root.name + "-origin.git")
+    git(root, "clone", "-q", "--bare", ".", str(bare))
+    git(root, "remote", "add", "origin", str(bare))
+    git(root, "fetch", "-q", "origin")
+    git(root, "remote", "set-head", "origin", "main")
+    return ws
+
+
+def real(result) -> list[dict]:
+    """Findings without the note that a local repo has no remote to compare with."""
+    return [f for f in findings(result) if not (f["code"] == "C039" and f["severity"] == "INFO")]
 
 
 def lint(ws: Path, *extra, name: str = CONTRACT, no_yaml: bool = False):
@@ -41,7 +80,7 @@ def edit(path: Path, old: str, new: str):
 
 def test_fixture_contract_is_clean(ws):
     r = lint(ws)
-    assert r.returncode == 0 and findings(r) == []
+    assert r.returncode == 0 and real(r) == []
 
 
 # ---- D1: the freeze ----------------------------------------------------------
@@ -103,7 +142,7 @@ def test_record_in_the_decision_log_counts_too(ws):
     assert run("contract_tool.py", "goal", c).returncode == 1
     log = ws / "kb" / "decision-log.md"
     log.write_text(log.read_text() + f"\n## D-004 (2026-11-12, owner)\nPicked up C-001 v1, hash {h}.\nOwner message: \"approved {h}\"\n")
-    assert findings(lint(ws)) == []
+    assert real(lint(ws)) == []
     assert run("contract_tool.py", "goal", c, "--ids", "AC-1").returncode == 0
     log.write_text(log.read_text().replace(f"hash {h}.", "hash 000000000000."))
     assert has(lint(ws), "C037", "differs from what was picked up", "ERROR")
@@ -116,7 +155,8 @@ def test_format_example_in_the_state_file_is_not_a_record(ws):
     assert has(lint(ws), "C037", "approved but not picked up")  # neither comment counts as a record
 
 
-def test_contract_approved_under_the_old_hash_formula_is_a_warning_not_an_error(ws):
+def test_contract_approved_under_the_old_hash_formula_is_a_warning_not_an_error(plain):
+    ws = plain
     c = ws / CONTRACT
     data = ct.load(c)
     new, old = ct.contract_hash(data), ct.legacy_hash(data)
@@ -300,25 +340,9 @@ def test_planted_contract_still_fails_for_the_planted_reasons():
 
 # ---- N1: in a repo, the copy on the default branch is the one that counts --------------
 
-def git(cwd, *args):
-    r = subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args], cwd=cwd, capture_output=True, text=True)
-    assert r.returncode == 0, r.stderr
-    return r.stdout
-
-
-@pytest.fixture
-def repo(ws):
-    """The fixture workspace as a git repo: everything on main, threads working on the governance branch."""
-    root = ws.parent
-    git(root, "init", "-q", "-b", "main")
-    git(root, "add", "-A")
-    git(root, "commit", "-q", "-m", "approved contract, reviewed by the owner")
-    git(root, "checkout", "-q", "-b", "governance")
-    return ws
-
-
 def test_clean_contract_on_the_governance_branch_passes(repo):
-    assert findings(lint(repo)) == []
+    r = lint(repo)
+    assert real(r) == [] and has(r, "C039", "no remote 'origin': compared with the local branch 'main'", "INFO")
     assert run("contract_tool.py", "goal", repo / CONTRACT, "--ids", "AC-1").returncode == 0
 
 
@@ -330,8 +354,9 @@ def test_rewriting_contract_message_and_record_together_fails_in_a_repo(repo):
     for f in (c, repo / "project-state.yaml"):
         f.write_text(f.read_text().replace(old, new))   # hash, quoted owner message and pickup record all rewritten
     git(repo.parent, "commit", "-qam", "quiet edit on the unprotected branch")
-    # without git this is the case the first review left open: nothing to compare with
-    assert findings(lint(repo, "--no-git")) == []
+    # without the comparison this is the case the first review left open; skipping it is itself reported
+    skipped = lint(repo, "--no-git")
+    assert not errors(skipped) and has(skipped, "C039", "--no-git: this contract was not compared", "WARN")
     r = lint(repo)
     assert r.returncode == 1 and has(r, "C039", "differs from the copy on main", "ERROR")
     assert has(lint(repo, no_yaml=True), "C039", "differs from the copy on main")
@@ -357,34 +382,148 @@ def test_contract_approved_only_on_the_working_branch_is_refused(repo):
     assert not has(run("contract_tool.py", "lint", v2, "--json"), "C039")
 
 
-def test_origin_is_preferred_and_a_missing_branch_is_a_warning(repo):
+def test_origin_is_preferred_over_a_local_branch_that_moved(cloned):
+    repo = cloned
     root = repo.parent
-    bare = root.parent / "origin.git"
-    git(root, "clone", "-q", "--bare", ".", str(bare))
-    git(root, "remote", "add", "origin", str(bare))
-    git(root, "fetch", "-q", "origin")
     git(root, "checkout", "-q", "main")
     edit(repo / CONTRACT, "stores 120 transactions", "stores 12 transactions")
     git(root, "commit", "-qam", "local main moved without review")
     git(root, "checkout", "-q", "governance")
     git(root, "merge", "-q", "main")
     assert has(lint(repo), "C039", "differs from the copy on origin/main", "ERROR")
-    assert has(lint(repo, "--default-branch", "trunk"), "C039", "not known in this checkout", "WARN")
 
 
-def test_outside_git_the_comparison_is_skipped(ws):
-    assert not has(lint(ws), "C039")
+# ---- P1: the default branch is the remote's, not what the ruleset on the working branch says ----
+
+def tamper(ws):
+    """Change a criterion and rewrite hash, quoted owner message and pickup record to match; commit it."""
+    c = ws / CONTRACT
+    old = ct.contract_hash(ct.load(c))
+    edit(c, "stores 120 transactions", "stores 12 transactions")
+    new = run("contract_tool.py", "hash", c).stdout.strip()
+    for f in (c, ws / "project-state.yaml"):
+        f.write_text(f.read_text().replace(old, new))
+    git(ws.parent, "commit", "-qam", "quiet edit on the unprotected branch")
+
+
+def point_default_branch_at(ws, branch):
+    for f in [ws / "claude-project-rules.yaml", *(ws / "rules").glob("*.yaml")]:
+        f.write_text(f.read_text().replace('default_branch: "main"', f'default_branch: "{branch}"'))
+    cfg = ws / "governance-config.json"
+    cfg.write_text(cfg.read_text().replace('"default_branch": "main"', f'"default_branch": "{branch}"'))
+    git(ws.parent, "commit", "-qam", "ruleset now names another default branch")
+
+
+def test_changing_default_branch_in_the_ruleset_does_not_redirect_the_comparison(cloned):
+    ws = cloned
+    tamper(ws)
+    point_default_branch_at(ws, "governance")
+    r = lint(ws)
+    assert r.returncode == 1
+    assert has(r, "C039", "names 'governance' as the default branch, but the remote's default branch is 'main'", "ERROR")
+    assert has(r, "C039", "differs from the copy on origin/main", "ERROR")
+    assert has(r, "C040", "claude-project-rules.yaml", "WARN")
+    goal = run("contract_tool.py", "goal", ws / CONTRACT)
+    assert goal.returncode == 1 and "/goal" not in goal.stdout
+    audit = run("audit_rules.py", ws / "claude-project-rules.yaml", "--state", ws / "project-state.yaml", "--json")
+    assert audit.returncode == 1
+    found = {(f["code"], f["severity"]) for f in json.loads(audit.stdout)["findings"]}
+    assert ("A14", "ERROR") in found and ("A14", "WARN") in found
+
+
+def test_without_origin_head_a_redirected_default_branch_is_still_caught(ws):
+    # a local-only repo: the remote cannot arbitrate, but comparing a branch with itself is recognised
+    tamper(ws)
+    point_default_branch_at(ws, "governance")
+    r = lint(ws)
+    assert has(r, "C039", "is the branch you are on", "WARN")
+    goal = run("contract_tool.py", "goal", ws / CONTRACT)
+    assert goal.returncode == 1 and "not verified against the copy the owner reviewed" in goal.stderr
+    pick = run("contract_tool.py", "pickup", ws / CONTRACT, "--hash", ct.contract_hash(ct.load(ws / CONTRACT)), "--decision", "D-9")
+    assert pick.returncode == 1 and pick.stdout == ""
+
+
+def test_a_default_branch_flag_cannot_redirect_either(cloned):
+    tamper(cloned)
+    r = lint(cloned, "--default-branch", "governance")
+    assert has(r, "C039", "but the remote's default branch is 'main'", "ERROR") and has(r, "C039", "differs from the copy on origin/main")
+
+
+@pytest.mark.parametrize("rel", ["claude-project-rules.yaml", "rules/implementation.yaml", "roadmap.yaml", "governance-config.json"])
+def test_ruleset_extracts_roadmap_and_config_are_compared_too(cloned, rel):
+    ws = cloned
+    f = ws / rel
+    f.write_text(f.read_text() + "\n# quiet change\n" if not rel.endswith(".json") else f.read_text().replace('"is_public": false', '"is_public": true'))
+    git(ws.parent, "commit", "-qam", "edit a protected file on the governance branch")
+    r = lint(ws)
+    assert not errors(r) and has(r, "C040", rel, "WARN")
+    goal = run("contract_tool.py", "goal", ws / CONTRACT)
+    assert goal.returncode == 1 and "C040" in goal.stderr
+    audit = run("audit_rules.py", ws / "claude-project-rules.yaml", "--state", ws / "project-state.yaml", "--json")
+    assert any(x["code"] == "A14" and rel in x["message"] for x in json.loads(audit.stdout)["findings"])
+
+
+def test_clean_clone_is_silent_and_works(cloned):
+    assert findings(lint(cloned)) == []
+    assert run("contract_tool.py", "goal", cloned / CONTRACT, "--ids", "AC-1").returncode == 0
+    audit = run("audit_rules.py", cloned / "claude-project-rules.yaml", "--state", cloned / "project-state.yaml", "--json", "--strict")
+    assert audit.returncode == 0 and json.loads(audit.stdout)["findings"] == []
+
+
+# ---- P2: the comparison is never skipped without a trace --------------------------------------
+
+def test_goal_and_pickup_have_no_switch_to_skip_the_comparison(ws):
+    c = ws / CONTRACT
+    for args in (("goal", c, "--no-git"), ("pickup", c, "--hash", "x", "--decision", "D-1", "--no-git")):
+        r = run("contract_tool.py", *args)
+        assert r.returncode == 2 and "unrecognized arguments: --no-git" in r.stderr
+
+
+def test_a_workspace_outside_git_is_reported_and_starts_no_work(plain):
+    r = lint(plain)   # the ruleset says environment claude_code, so a missing repository is a warning
+    assert r.returncode == 0 and has(r, "C039", "this is not a git checkout", "WARN")
+    assert lint(plain, "--strict").returncode == 1
+    goal = run("contract_tool.py", "goal", plain / CONTRACT)
+    assert goal.returncode == 1 and "not a git checkout" in goal.stderr
+    h = ct.contract_hash(ct.load(plain / CONTRACT))
+    edit(plain / "project-state.yaml", f'approved_contracts: ["C-001 v1 D-004 hash {h}"]', "approved_contracts: []")
+    assert run("contract_tool.py", "pickup", plain / CONTRACT, "--hash", h, "--decision", "D-5").returncode == 1
+
+
+def test_a_claude_ai_project_outside_git_gets_a_note_and_works(plain):
+    for f in [plain / "claude-project-rules.yaml"]:
+        f.write_text(f.read_text().replace("environment: claude_code", "environment: claude_ai_project"))
+    r = lint(plain)
+    assert has(r, "C039", "not a git checkout", "INFO") and lint(plain, "--strict").returncode == 0
+    assert run("contract_tool.py", "goal", plain / CONTRACT, "--ids", "AC-1").returncode == 0
+
+
+def test_missing_origin_ref_or_origin_head_is_a_warning_not_a_silent_fallback(cloned):
+    root = cloned.parent
+    git(root, "remote", "set-head", "origin", "--delete")
+    r = lint(cloned)
+    assert not errors(r) and has(r, "C039", "does not record the remote's default branch", "WARN")
+    assert run("contract_tool.py", "goal", cloned / CONTRACT).returncode == 1
+    git(root, "update-ref", "-d", "refs/remotes/origin/main")
+    r = lint(cloned)
+    assert has(r, "C039", "origin/main is not in this checkout; compared with the local branch 'main'", "WARN")
+    assert run("contract_tool.py", "goal", cloned / CONTRACT).returncode == 1
+    assert has(lint(cloned, "--default-branch", "trunk"), "C039", "not known in this checkout", "WARN")
 
 
 # ---- N4: pickup names the hash the owner approved ------------------------------------------
 
 def unpick(ws):
+    """Remove the pickup record, on both branches, as if the coordinator had not picked the contract up yet."""
     h = ct.contract_hash(ct.load(ws / CONTRACT))
     edit(ws / "project-state.yaml", f'approved_contracts: ["C-001 v1 D-004 hash {h}"]', "approved_contracts: []")
     return h
 
 
-def test_pickup_prints_the_line_only_for_the_hash_the_owner_named(ws):
+def test_pickup_prints_the_line_only_for_the_hash_the_owner_named(plain):
+    ws = plain   # a claude.ai Project: no git to compare with, so the hash the owner names is what ties pickup to approval
+    rules = ws / "claude-project-rules.yaml"
+    rules.write_text(rules.read_text().replace("environment: claude_code", "environment: claude_ai_project"))
     c = ws / CONTRACT
     h = unpick(ws)
     ok = run("contract_tool.py", "pickup", c, "--hash", h, "--decision", "D-12")

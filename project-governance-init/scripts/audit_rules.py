@@ -660,8 +660,27 @@ def render_markdown(path: Path, findings: list[Finding], n_rules: int) -> str:
         lines.append("")
     lines.append("Codes: A01 header, A02 ids, A03 scopes, A04 lanes/labels, A05 execution profile, "
                  "A06 state leakage, A07 dead history, A08 token bloat, A09 contradiction patterns, A10 state file, "
-                 "A11 optional roles, A12 per-role extracts, A13 authority order.")
+                 "A11 optional roles, A12 per-role extracts, A13 authority order, A14 comparison with the default branch.")
     return "\n".join(lines) + "\n"
+
+
+def git_checks(rules_path: Path, data: dict[str, Any]) -> list[Finding]:
+    """A14: in a repository, the ruleset, its config, the extracts and the roadmap must equal their copies on the
+    default branch. Threads read them on a branch any of them can write, so the working copy proves nothing."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        import contract_tool as ct  # type: ignore
+    except ImportError:
+        return []
+    prof = data.get("project_profile") if isinstance(data.get("project_profile"), dict) else {}
+    in_repo = str(prof.get("environment", "")) == "claude_code"
+    workspace = rules_path.resolve().parent
+    ref, trust = ct.trusted_ref(workspace, str(prof.get("default_branch") or ""), in_repo)
+    # Outside git the audit has nothing to compare with; it says so for an in-repo workspace and is silent otherwise.
+    out = [Finding("A14", "INFO" if "not a git checkout" in f.message else f.severity, f.message, "default branch")
+           for f in trust if f.severity != "INFO" or "no remote" in f.message]
+    out += [Finding("A14", f.severity, f.message, "default branch") for f in ct.protected_findings(workspace, ref, "A14")]
+    return out
 
 
 def main() -> int:
@@ -670,6 +689,7 @@ def main() -> int:
     ap.add_argument("--state", type=Path, help="path to project-state.yaml for cross-checks")
     ap.add_argument("--json", action="store_true", help="emit findings as JSON instead of markdown")
     ap.add_argument("--strict", action="store_true", help="exit 1 on WARN as well as ERROR")
+    ap.add_argument("--no-git", action="store_true", help="do not compare the ruleset, config, extracts and roadmap with the default branch")
     ap.add_argument("--extracts", type=Path, help="directory with the per-role extracts (default: `rules/` next to the ruleset, if it exists)")
     args = ap.parse_args()
 
@@ -692,6 +712,8 @@ def main() -> int:
         print(f"warning: extract directory {args.extracts} not found; skipping that check", file=sys.stderr)
 
     findings = run_checks(data, rules, raw_text, state_text, extracts)
+    if not args.no_git:
+        findings += git_checks(args.rules, data)
     findings.sort(key=lambda x: (SEV_ORDER[x.severity], x.code))
 
     if args.json:

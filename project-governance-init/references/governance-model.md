@@ -427,8 +427,13 @@ may not push to the default branch:
 - The governance branch is not protected: any thread can commit to it. So
   the copy of a protected file there proves nothing. The copy on the default
   branch is the one that counts, and `contract_tool.py` compares an approved
-  contract with `origin/<default_branch>` instead of trusting the working
-  copy (C039).
+  contract with it instead of trusting the working copy (C039). The same
+  holds for the ruleset itself, its config, the extracts and the roadmap:
+  the contract tool (C040) and the audit (A14) compare them too. Which
+  branch is the default is taken from the remote (`origin/HEAD`), because the
+  `default_branch` line in a ruleset on the governance branch could be
+  edited like anything else there; a ruleset that disagrees with the remote
+  is an error.
 
 **The decision log (`ROLE-08`).** The coordinator makes decisions; the KB
 thread writes the log. The hand-over between them is a file, not a chat
@@ -479,6 +484,7 @@ a tool and which rest on threads following the rules:
 |---|---|
 | Config values have the right type; the YAML parses | the generator (refuses, exit 2 or 3) |
 | A fresh ruleset is consistent; the hard stop exists; extracts match | `audit_rules.py` |
+| The ruleset, config, extracts and roadmap a thread reads are the reviewed ones | in a repo: `audit_rules.py` (A14) and `contract_tool.py` (C040) compare them with the remote's default branch. Elsewhere: not enforced |
 | An approved contract was not edited afterwards | `contract_tool.py lint`, `goal` and `pickup`: the contract's hash, the owner's quoted message and the coordinator's pickup record must agree; at pickup the content must match the hash the owner names; in a repo it must also match the copy on the default branch |
 | Only the owner approves a contract or a ruleset change | in a repo: CODEOWNERS plus required code-owner review on the default branch, once the owner has set them up. Elsewhere: by rule only (`ROLE-03`) |
 | Labels and milestones exist before issues are created; no duplicate issues | `contract_tool.py issues --preflight` and `record-issue` |
@@ -490,6 +496,8 @@ from writing any file, so a thread that edits a contract, its hash, the
 quoted owner message and the pickup record together, after pickup, is caught
 only by whoever reads the files. In a repo this is closed by the comparison
 with the default branch, provided the owner has set up CODEOWNERS and
-required review there and the checkout is fetched. The design makes a silent change take several
+required review there, the checkout is fetched, and it records the remote's
+default branch (`git remote set-head origin --auto`; a normal clone does).
+Where it does not, `goal` and `pickup` refuse rather than trust the ruleset. The design makes a silent change take several
 coordinated edits in files owned by other roles; it does not make it
 impossible. The audit exists to look.

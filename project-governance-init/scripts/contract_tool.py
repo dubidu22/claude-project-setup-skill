@@ -32,8 +32,14 @@ contract's folder; --state, --decision-log and --rules name other places.
 In a git repository whose ruleset names a `default_branch`, an approved contract
 is also compared with its copy on that branch (`origin/<branch>`, else the local
 branch): that copy is the one the owner's pull-request review let in, and the
-branch threads work on is not protected. Run `git fetch` first; --no-git skips
-the comparison.
+branch threads work on is not protected. Which branch that is comes from the
+remote (origin/HEAD) wherever the checkout records it, not from the ruleset,
+because threads read the ruleset on that same unprotected branch. The ruleset,
+its config, the per-role extracts and the roadmap next to the contract are
+compared too (C040). Run `git fetch` first. Every case in which the comparison
+is skipped or weakened is reported as a finding: `lint --no-git`, a workspace
+outside git, an unknown origin/HEAD, a missing origin ref. `goal` and `pickup`
+refuse in all of those cases except a workspace that is not meant to be in git.
 
 lint exit code: 0 clean or only WARN/INFO, 1 when any ERROR (or WARN with
 --strict), 2 when the file cannot be read or parsed.
@@ -444,17 +450,18 @@ def workspace_files(contract: Path, state: Path | None, decision_log: Path | Non
     return texts, (rules_path if rules_path.is_file() else None)
 
 
-def ruleset_labels(rules_path: Path | None) -> tuple[list[str] | None, str, str]:
-    """file_ownership_labels, repository and default_branch of the ruleset; (None, '', '') when it cannot be read."""
+def ruleset_labels(rules_path: Path | None) -> tuple[list[str] | None, str, str, str]:
+    """file_ownership_labels, repository, default_branch and environment of the ruleset; empty when unreadable."""
     if rules_path is None:
-        return None, "", ""
+        return None, "", "", ""
     try:
         data = load(rules_path)
     except (OSError, ValueError):
-        return None, "", ""
+        return None, "", "", ""
     prof = data.get("project_profile") if isinstance(data.get("project_profile"), dict) else {}
     labels = prof.get("file_ownership_labels")
-    return ([s(x) for x in labels] if isinstance(labels, list) else None), s(data.get("repository")), s(prof.get("default_branch"))
+    return (([s(x) for x in labels] if isinstance(labels, list) else None), s(data.get("repository")),
+            s(prof.get("default_branch")), s(prof.get("environment")))
 
 
 def _git(cwd: Path, *args: str) -> tuple[int, str]:
@@ -465,70 +472,172 @@ def _git(cwd: Path, *args: str) -> tuple[int, str]:
     return p.returncode, p.stdout
 
 
-def reviewed_copy(contract: Path, branch: str) -> tuple[str, dict[str, Any] | None, str]:
-    """The contract as it stands on the default branch.
+def _ref_exists(folder: Path, ref: str) -> bool:
+    return _git(folder, "rev-parse", "--verify", "--quiet", ref + "^{commit}")[0] == 0
 
-    Returns (state, data, ref): state is 'no-git' (not a repository, or git missing), 'no-branch' (the branch
-    is not known here), 'absent' (the file is not on that branch), 'unreadable', or 'found'."""
-    folder = contract.resolve().parent
+
+def trusted_ref(folder: Path, claimed: str, in_repo_expected: bool = False) -> tuple[str, list[Finding]]:
+    """Which git ref holds the copy the owner reviewed, and how far that answer can be trusted.
+
+    The ruleset names a default branch, but threads read the ruleset on a branch any of them can write, so its
+    word is not enough. The remote's own default branch (origin/HEAD) decides wherever the checkout knows it.
+    Returns (ref, findings); ref is '' when there is nothing to compare with. Every case that weakens or skips
+    the comparison leaves a finding (C039), so it never happens without a trace."""
+    out: list[Finding] = []
+
+    def add(severity: str, message: str) -> None:
+        out.append(Finding("C039", severity, message, "default branch"))
+
     code, top = _git(folder, "rev-parse", "--show-toplevel")
     if code != 0 or not top.strip():
-        return "no-git", None, ""
+        if in_repo_expected:
+            add("WARN", "the ruleset says this workspace lives in a repository (environment claude_code), but this is not a "
+                        "git checkout: there is no reviewed copy to compare with, so nothing here is verified")
+        else:
+            add("INFO", "not a git checkout: there is no reviewed copy on a default branch to compare with")
+        return "", out
+
+    has_origin = "origin" in _git(folder, "remote")[1].split()
+    code, head = _git(folder, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
+    head = head.strip() if code == 0 else ""
+    current = _git(folder, "rev-parse", "--abbrev-ref", "HEAD")[1].strip()
+
+    if head and _ref_exists(folder, head):
+        actual = head.split("/", 1)[1]
+        if claimed and claimed != actual:
+            add("ERROR", f"the ruleset here (or --default-branch) names '{claimed}' as the default branch, but the remote's "
+                         f"default branch is '{actual}'. That line was changed on an unprotected branch, or the config is "
+                         f"wrong; the comparison uses {head}")
+        return head, out
+
+    branch = claimed or next((b for b in ("main", "master") if _ref_exists(folder, f"origin/{b}") or _ref_exists(folder, b)), "")
+    if not branch:
+        add("WARN", "no default branch is known (none in the ruleset, no origin/HEAD, no main or master): nothing is "
+                    "compared with a reviewed copy")
+        return "", out
+    if not claimed:
+        add("WARN", f"the ruleset names no default branch; assuming '{branch}'")
+
+    if has_origin and _ref_exists(folder, f"origin/{branch}"):
+        ref = f"origin/{branch}"
+        add("WARN", f"this checkout does not record the remote's default branch, so '{branch}' is taken on the ruleset's "
+                    "word, and the ruleset on this branch can be edited by any thread. Run "
+                    "`git remote set-head origin --auto` once to make it checkable")
+    elif _ref_exists(folder, branch):
+        ref = branch
+        if has_origin:
+            add("WARN", f"origin/{branch} is not in this checkout; compared with the local branch '{branch}', which any "
+                        "thread can move. Run `git fetch`")
+        else:
+            add("INFO", f"no remote 'origin': compared with the local branch '{branch}'")
+    else:
+        add("WARN", f"branch '{branch}' is not known in this checkout, so nothing is compared with the copy the owner "
+                    "reviewed; run `git fetch`")
+        return "", out
+    if current == branch:
+        add("WARN", f"the branch named as default ('{branch}') is the branch you are on, and the remote's default branch "
+                    "is not recorded here, so the comparison is with this branch itself and proves nothing")
+    return ref, out
+
+
+def _show(folder: Path, ref: str, path: Path) -> tuple[str, str]:
+    """('found', text) | ('absent', '') | ('outside', '') for a file as it stands on ref."""
+    code, top = _git(folder, "rev-parse", "--show-toplevel")
     try:
-        rel = contract.resolve().relative_to(Path(top.strip()).resolve()).as_posix()
+        rel = path.resolve().relative_to(Path(top.strip()).resolve()).as_posix()
     except ValueError:
-        return "no-git", None, ""
-    for ref in (f"origin/{branch}", branch):
-        if _git(folder, "rev-parse", "--verify", "--quiet", ref + "^{commit}")[0] != 0:
-            continue
-        code, text = _git(folder, "show", f"{ref}:{rel}")
-        if code != 0:
-            return "absent", None, ref
-        try:
-            if contract.suffix.lower() == ".json":
-                data = json.loads(text)
+        return "outside", ""
+    code, text = _git(folder, "show", f"{ref}:{rel}")
+    return ("found", text) if code == 0 else ("absent", "")
+
+
+def protected_files(workspace: Path) -> list[Path]:
+    """Files that change on the default branch only: ruleset, config, per-role extracts, roadmap."""
+    files = [workspace / "claude-project-rules.yaml", workspace / "governance-config.json", workspace / "roadmap.yaml"]
+    files += sorted((workspace / "rules").glob("*.yaml")) if (workspace / "rules").is_dir() else []
+    return [f for f in files if f.is_file()]
+
+
+def protected_findings(workspace: Path, ref: str, code: str = "C040") -> list[Finding]:
+    """Report protected files whose working copy differs from the reviewed copy on ref."""
+    if not ref:
+        return []
+    differ, absent = [], []
+    for f in protected_files(workspace):
+        state, text = _show(workspace, ref, f)
+        if state == "absent":
+            absent.append(f.relative_to(workspace).as_posix())
+        elif state == "found" and text != f.read_text(encoding="utf-8"):
+            differ.append(f.relative_to(workspace).as_posix())
+    out = []
+    if differ:
+        out.append(Finding(code, "WARN", f"these files differ from their copy on {ref}, which is the one that counts: "
+                                         f"{', '.join(differ)}. Either a change is not merged yet, or {ref} was not merged "
+                                         "into this branch, or they were edited on an unprotected branch. Do not act on "
+                                         f"them until they match (git diff {ref} -- <file>)", "protected files"))
+    if absent:
+        out.append(Finding(code, "WARN", f"these files are not on {ref} yet: {', '.join(absent)}. They have not been through "
+                                         "a pull request the owner reviewed", "protected files"))
+    return out
+
+
+def reviewed_copy(contract: Path, ref: str) -> tuple[str, dict[str, Any] | None]:
+    """The contract as it stands on ref: ('absent' | 'unreadable' | 'found', data)."""
+    state, text = _show(contract.resolve().parent, ref, contract)
+    if state != "found":
+        return "absent", None
+    try:
+        if contract.suffix.lower() == ".json":
+            data = json.loads(text)
+        else:
+            try:
+                import yaml  # type: ignore
+            except ImportError:
+                data = mini_yaml(text)
             else:
-                try:
-                    import yaml  # type: ignore
-                except ImportError:
-                    data = mini_yaml(text)
-                else:
-                    data = yaml.safe_load(text)
-        except Exception:  # noqa: BLE001
-            return "unreadable", None, ref
-        return ("found", data, ref) if isinstance(data, dict) else ("unreadable", None, ref)
-    return "no-branch", None, ""
+                data = yaml.safe_load(text)
+    except Exception:  # noqa: BLE001
+        return "unreadable", None
+    return ("found", data) if isinstance(data, dict) else ("unreadable", None)
 
 
-def git_findings(contract: Path, data: dict[str, Any], branch: str) -> list[Finding]:
-    """Compare an approved contract with the copy the owner reviewed on the default branch (C039)."""
-    if s((data.get("contract") or {}).get("status")).lower() != "approved" or not branch:
+def git_findings(contract: Path, data: dict[str, Any], branch: str, in_repo_expected: bool = False) -> list[Finding]:
+    """Compare an approved contract, and the protected files next to it, with the reviewed copies (C039, C040)."""
+    if s((data.get("contract") or {}).get("status")).lower() != "approved":
         return []
-    state, base, ref = reviewed_copy(contract, branch)
-    if state == "no-git":
-        return []
-    if state == "no-branch":
-        return [Finding("C039", "WARN", f"branch '{branch}' is not known in this checkout, so the contract cannot be compared with the copy the owner reviewed; run `git fetch`", "approval")]
+    folder = contract.resolve().parent
+    ref, out = trusted_ref(folder, branch, in_repo_expected)
+    if not ref:
+        return out
+
+    def add(message: str) -> None:
+        out.append(Finding("C039", "ERROR", message, "approval"))
+
+    state, base = reviewed_copy(contract, ref)
     if state == "absent":
-        return [Finding("C039", "ERROR", f"approved, but the contract is not on {ref}: the pull request that carries the owner's approval has not been merged (or this checkout is stale: `git fetch`). No work starts from it", "approval")]
-    if state == "unreadable" or base is None:
-        return [Finding("C039", "ERROR", f"the copy of this contract on {ref} cannot be read", "approval")]
-    mine, theirs = contract_hash(data), contract_hash(base)
-    if mine != theirs:
-        return [Finding("C039", "ERROR", f"the contract differs from the copy on {ref}, which is the one the owner reviewed (here {mine}, there {theirs}); it was edited on an unprotected branch. Restore it from {ref}", "approval")]
-    if s((base.get("contract") or {}).get("status")).lower() != "approved":
-        return [Finding("C039", "ERROR", f"the contract is approved here but not on {ref}; the approval was not part of what the owner reviewed", "approval")]
-    a = data.get("approval") if isinstance(data.get("approval"), dict) else {}
-    b = base.get("approval") if isinstance(base.get("approval"), dict) else {}
-    changed = [k for k in ("by", "hash", "owner_message") if s(a.get(k)) != s(b.get(k))]
-    if changed:
-        return [Finding("C039", "ERROR", f"approval.{', approval.'.join(changed)} differ from the copy on {ref}; restore the file from {ref}", "approval")]
-    return []
+        add(f"approved, but the contract is not on {ref}: the pull request that carries the owner's approval has not been "
+            "merged (or this checkout is stale: `git fetch`). No work starts from it")
+    elif state == "unreadable" or base is None:
+        add(f"the copy of this contract on {ref} cannot be read")
+    else:
+        mine, theirs = contract_hash(data), contract_hash(base)
+        a = data.get("approval") if isinstance(data.get("approval"), dict) else {}
+        b = base.get("approval") if isinstance(base.get("approval"), dict) else {}
+        changed = [k for k in ("by", "hash", "owner_message") if s(a.get(k)) != s(b.get(k))]
+        if mine != theirs:
+            add(f"the contract differs from the copy on {ref}, which is the one the owner reviewed (here {mine}, there "
+                f"{theirs}); it was edited on an unprotected branch. Restore it from {ref}")
+        elif s((base.get("contract") or {}).get("status")).lower() != "approved":
+            add(f"the contract is approved here but not on {ref}; the approval was not part of what the owner reviewed")
+        elif changed:
+            add(f"approval.{', approval.'.join(changed)} differ from the copy on {ref}; restore the file from {ref}")
+    return out + protected_findings(contract.resolve().parent.parent, ref)
 
 
-# ----------------------------------------------------------------------------
-# Lint
-# ----------------------------------------------------------------------------
+def unverified(findings: list[Finding]) -> list[Finding]:
+    """Findings that mean the comparison with the reviewed copy did not fully happen or did not pass."""
+    return [f for f in findings if f.code in ("C039", "C040") and f.severity in ("ERROR", "WARN")]
+
 
 def lint(data: dict[str, Any], max_package_criteria: int = MAX_PACKAGE_CRITERIA, *,
          record_texts: dict[str, str] | None = None, labels: list[str] | None = None) -> list[Finding]:
@@ -1086,9 +1195,11 @@ def main() -> int:
     p_goal.add_argument("--ids", help="comma-separated criterion ids (default: all must criteria + core probe)")
     p_goal.add_argument("--turns", type=int, default=30)
     p_goal.add_argument("--allow-draft", action="store_true")
+    # Only lint can skip the comparison, and it says so in its findings. goal and pickup gate work; they cannot.
+    p_lint.add_argument("--no-git", action="store_true", help="do not compare with the copy on the default branch (reported as a finding)")
     for sp in (p_lint, p_goal, p_pick):
-        sp.add_argument("--no-git", action="store_true", help="do not compare with the copy on the default branch")
-        sp.add_argument("--default-branch", help="branch holding the reviewed copy (default: project_profile.default_branch of the ruleset)")
+        sp.add_argument("--default-branch", help="branch holding the reviewed copy, where the remote's default branch is not "
+                        "recorded in the checkout (default: project_profile.default_branch of the ruleset)")
     for sp in (p_lint, p_goal, p_iss, p_pick):
         sp.add_argument("--state", type=Path, help="project-state.yaml holding the pickup records (default: ../project-state.yaml)")
         sp.add_argument("--decision-log", type=Path, help="decision log holding the pickup records (default: ../kb/decision-log.md)")
@@ -1144,9 +1255,8 @@ def main() -> int:
 
     record_texts, rules_path = workspace_files(args.contract, getattr(args, "state", None),
                                                getattr(args, "decision_log", None), getattr(args, "rules", None))
-    labels, repo, default_branch = ruleset_labels(rules_path)
+    labels, repo, default_branch, environment = ruleset_labels(rules_path)
     branch = getattr(args, "default_branch", None) or default_branch
-    use_git = not getattr(args, "no_git", True)
 
     if args.cmd == "issues":
         errs = [x for x in lint(data, labels=labels) if x.severity == "ERROR"]
@@ -1173,14 +1283,19 @@ def main() -> int:
 
     findings = lint(data, getattr(args, "max_package_criteria", MAX_PACKAGE_CRITERIA),
                     record_texts=None if args.cmd == "pickup" else record_texts, labels=labels)
-    if use_git:
-        findings += git_findings(args.contract, data, branch)
+    if getattr(args, "no_git", False):
+        if s((data.get("contract") or {}).get("status")).lower() == "approved":
+            findings.append(Finding("C039", "WARN", "--no-git: this contract was not compared with the copy the owner reviewed", "default branch"))
+    else:
+        findings += git_findings(args.contract, data, branch, environment == "claude_code")
     errors = [x for x in findings if x.severity == "ERROR"]
+    # goal and pickup start work, so for them a comparison that was skipped or weakened counts like one that failed
+    gate = [x for x in unverified(findings) if x.severity == "WARN"] if args.cmd in ("goal", "pickup") else []
 
     if args.cmd == "pickup":
         meta = data.get("contract") or {}
         cid, ver, current = s(meta.get("id")), s(meta.get("version")), contract_hash(data)
-        problems = [f"{x.code} {x.message}" for x in errors]
+        problems = [f"{x.code} {x.message}" for x in errors + gate]
         if s(meta.get("status")).lower() != "approved":
             problems.append(f"status is '{s(meta.get('status'))}', not approved")
         if not DECISION_RE.match(args.decision):
@@ -1212,6 +1327,10 @@ def main() -> int:
         return 1
     if errors:
         print(f"error: {len(errors)} lint error(s); run `contract_tool.py lint` first", file=sys.stderr)
+        return 1
+    if gate:
+        print("error: this contract is not verified against the copy the owner reviewed, so no /goal line is given:\n"
+              + "\n".join(f"  - {x.code} {x.message}" for x in gate), file=sys.stderr)
         return 1
     meta = data.get("contract") or {}
     if status == "approved" and not find_records(s(meta.get("id")), s(meta.get("version")), record_texts):
