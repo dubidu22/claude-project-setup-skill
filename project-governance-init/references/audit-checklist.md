@@ -102,6 +102,9 @@ Propose the replacement text for each flagged rule, not just the complaint.
   and none makes it read diffs, logs, research or whole contracts. Without a
   dispatcher and with three or more lanes, expect it to compress; recommend
   turning the dispatcher on.
+- No rule or routine lets a thread change settings of the Claude app, the
+  project, the account, the repository or the hosting; such changes are owner
+  steps, named exactly.
 - Owner hand steps are walked through in an assist thread, not in the
   coordinator chat; threads the owner must answer in are announced; no rule or
   routine has a password, key or token pasted into a chat.
@@ -140,7 +143,7 @@ Issues and roadmap, after `contract_tool.py roadmap --plans`:
   D-number)?
 - Does `project-state.yaml` list the same active milestones as `roadmap.yaml`?
 - Do `superseded` versions and `dropped` milestones still have open PRs with
-  no owner decision (`PLAN-06`)?
+  no owner decision (`PLAN-05`)?
 
 ## 7. Report format
 

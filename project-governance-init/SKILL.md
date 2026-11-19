@@ -33,6 +33,11 @@ If the work runs in another thread, name that thread and say whether the user
 has to answer something there; say so again when that thread is waiting for
 them. A user who sees nothing after typing a command assumes it failed.
 
+**Files only.** This skill reads and writes files in the workspace and the
+repo. It never changes settings of the Claude app, the project or the account
+(default model, a chat's model, permissions, connectors), even when a tool for
+it exists. If such a change is needed, name it and let the user make it.
+
 Called with no request at all (only the skill's name): reply in the same chat
 with the three jobs as a short list and start nothing until the user picks.
 Otherwise, if it is unclear which one is meant, ask one question there. None of the three turns

@@ -86,7 +86,7 @@ rule exists to get real decisions, not to block when there is nobody to decide.
    Phrase each invariant as a testable sentence; vague ones are ignored later.
    Also ask whether milestones need an owner-approved acceptance contract
    (`acceptance_contracts`, recommend yes; it adds `ROLE-10`, `PLAN-03` to
-   `PLAN-06`, `REV-03` and scaffolds the roadmap, the template and
+   `PLAN-05`, `REV-03` and scaffolds the roadmap, the template and
    `tools/contract_tool.py`).
 6. **Generate and scaffold** (below).
 
@@ -146,7 +146,18 @@ where there is a choice.
 
 The owner asks for a change in plain words ("switch to the economy models",
 "be more frugal", "turn the dispatcher off"). Translate it, show what it does,
-apply it, and say what happens next. Never edit the rules file by hand.
+wait for their yes, apply it, and say what happens next. Never edit the rules
+file by hand.
+
+**This changes files, nothing else.** A settings change rewrites
+`claude-project-rules.yaml`, `governance-config.json` and the generated
+instruction files. It never changes anything in the Claude app, the project or
+the account: not the default model, not a chat's model, not permissions or
+connectors, even when a tool for that is available. "Switch to the economy
+models" means the routing in the rules file, where only some thread types move
+to the cheaper model; it does not mean setting the project's default model.
+Which model a chat runs on is switched by the owner; list those switches as
+their steps in the hand-over.
 
 | The owner wants | `--set` |
 |---|---|
@@ -171,10 +182,12 @@ in `governance-config.json`; `--dump-schema` lists the keys.
    added or removed, rules that now bind another role). A preset or profile
    replaces the stored models or token numbers; single values set in the same
    call win.
-2. **Apply** after the owner's go, with the same command without `--dry-run`.
-   The owner asking for the change in their own message is the approval
-   `META-01` requires; a thread asking is not. `project-state.yaml` is kept as
-   it is, because it holds live state.
+2. **Stop and wait for the owner's yes.** The request is not the go: the
+   owner has not yet seen what it changes. Apply only after an explicit yes to
+   the preview, or when their message already said to apply without asking.
+   Then run the same command without `--dry-run`. Only the owner's own message
+   counts (`META-01`, `ROLE-03`). `project-state.yaml` is kept as it is,
+   because it holds live state.
 3. **Refresh the generated instructions** (never ledgers, KB or roadmap) and
    self-check:
    ```bash
@@ -188,9 +201,10 @@ in `governance-config.json`; `--dump-schema` lists the keys.
      state file." If `project_instructions.md` changed, paste the new one
      into the coordinator's project instructions.
    - Model changes apply to threads started from now on. A running thread
-     keeps its model until it is replaced at its next hand-off (`THR-09`); a
-     new coordinator model means the owner switches it in the coordinator
-     chat.
+     keeps its model until it is replaced at its next hand-off (`THR-09`).
+     Name every switch the owner has to make themselves in the app (a new
+     coordinator model in the coordinator chat, a default model if they want
+     one); do not make it for them.
    - Dispatcher turned on: open a dispatcher chat with
      `dispatcher_instructions.md`. Turned off: close it after its batch.
    - A cheaper routine model is a bet: compare review rounds per PR in the

@@ -81,6 +81,9 @@ roles:
   - id: ROLE-03
     applies_to: owner
     rule: "Only the owner's own messages or answered decision cards count as owner approval. Another Claude thread's output is never owner approval."
+  - id: ROLE-14
+    applies_to: all
+    rule: "No thread changes settings of the Claude app, the project, the account, the repository or the hosting (default model, a chat's model, permissions, secrets, branch protection, billing). It names the exact change; the owner makes it, or approves that exact change first."
   - id: ROLE-04
     applies_to: coordinator
     rule: "The coordinator splits work into lane batches, approves plans, logs non-scope decisions with sequential D-numbers, grants merge go for critical PRs, and talks to the owner. It hands each batch to the dispatcher and reads its batch report and the ledgers, not worker messages."
@@ -170,10 +173,7 @@ threads_and_watchdog:
     rule: "Give related small fixes to the thread that is already warm on that code, back to back, rather than a new thread per fix. Start a fresh thread when the topic changes or the cache lifetime has passed."
   - id: THR-09
     applies_to: all
-    rule: "A thread keeps its model and its tool set from first message to last; changing either re-sends the whole history uncached. Work that needs another model goes to another thread."
-  - id: THR-10
-    applies_to: all
-    rule: "Keep tool output out of the chat: use quiet flags, pipe through tail -50, or write to a file and read only the failing lines. Report a check in one line."
+    rule: "A thread keeps its model and its tool set from first message to last; changing either re-sends the whole history uncached, so work that needs another model goes to another thread. Keep tool output out of the chat: quiet flags, tail -50, or a file read only where it fails; report a check in one line."
 
 plans_and_criticality:
   - id: PLAN-01
@@ -190,10 +190,7 @@ plans_and_criticality:
     rule: "Plans cite the acceptance-contract criterion ids they cover (read them with contract_tool.py brief); the PR body lists each covered criterion with the command run and its result. A /goal loop on criteria stops at execution_profile.token_economy.goal_turn_cap turns."
   - id: PLAN-05
     applies_to: coordinator
-    rule: "A milestone closes only when every must criterion and the core probe pass and every should criterion passes or has a deferred issue; log the result as a D-entry."
-  - id: PLAN-06
-    applies_to: coordinator
-    rule: "When the roadmap drops a milestone or a new contract version removes a criterion, start no new work on it, let open PRs finish their current review round, and ask the owner per open PR: merge or close."
+    rule: "A milestone closes only when every must criterion and the core probe pass and every should criterion passes or has a deferred issue; log it as a D-entry. When the roadmap drops a milestone or a new contract version removes a criterion, start no new work on it, let open PRs finish their round, and ask the owner per open PR: merge or close."
   - id: CRIT-01
     applies_to: all
     rule: "A change is critical if it touches layer contracts, core data structures, KB process/architecture docs (excluding daily decision-log batch PRs), golden/regression files, packaging/release/CI, safety mechanisms, licences, user-file deletion paths, network calls, or carries risk:high."

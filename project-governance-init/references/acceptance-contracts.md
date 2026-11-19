@@ -2,7 +2,7 @@
 
 How a feature idea or plan change becomes an acceptance contract, work
 packages and a roadmap update, and how a contract is approved, changed and
-closed (rules `ROLE-10`, `PLAN-03` to `PLAN-06`, `REV-03`). Specify follows
+closed (rules `ROLE-10`, `PLAN-03` to `PLAN-05`, `REV-03`). Specify follows
 this method; the audit judges contracts against it. Init scaffolds this file
 into the workspace as `tools/acceptance-contracts.md`. `tools/contract_tool.py`
 checks the mechanical part. Run the tool, do not read its source.
@@ -51,7 +51,7 @@ One owner per step; no step has two.
 | Pick up: lint, log the D-number, mirror the roadmap into the state file, batch work packages by lane | coordinator | `PLAN-03` | interviews, researches or edits criteria |
 | Plans and PR proof per criterion | implementation threads | `PLAN-04` | changes a criterion |
 | Confirm claimed criteria | review threads | `REV-03` | accepts a claim without proof |
-| Close the milestone; handle dropped work | coordinator | `PLAN-05`, `PLAN-06` | closes with an open must criterion |
+| Close the milestone; handle dropped work | coordinator | `PLAN-05` | closes with an open must criterion |
 
 A dispatcher, where one exists, has no part in acceptance contracts.
 
@@ -165,7 +165,7 @@ the owner). Either way the change goes through specify:
    changed and why in `changes`. Research only what the change touches.
 2. Owner approval and a new hash, as in step 6; the previous file gets
    `status: superseded`. The coordinator logs a new D-number on pickup.
-3. If the new version removes a criterion that has open work, `PLAN-06`
+3. If the new version removes a criterion that has open work, `PLAN-05`
    applies: no new work on it, open PRs finish their round, the owner decides
    per PR whether to merge or close.
 
@@ -242,6 +242,6 @@ hash) and one `backlog` draft per `cut` item.
   contract, and contracts for milestones that are not on the roadmap.
 - Reordering, postponing or dropping needs no research and no contract
   change, only the owner's decision. Dropping a milestone with open work
-  triggers `PLAN-06`.
+  triggers `PLAN-05`.
 - Keep it short: one entry per milestone, no task lists. Tasks are the work
   packages of the milestone's contract.
