@@ -1,0 +1,11 @@
+schema_version: "1.1"
+name: model-choice-economy
+expected_outcome: |
+  The assistant maps the owner's model wishes onto the six routing slots instead of using the
+  default preset: coordinator, specify and critical_work on Opus; implementation and
+  review_kb_audit on Sonnet with high effort; operations on Sonnet. It writes the names as the
+  owner gave them and does not invent version numbers. Because routine implementation is weaker
+  than critical work, the generated ruleset contains the escalation rule that moves a PR with
+  must-fix findings after two review rounds to a fresh thread on the critical-work model. The
+  rules pass the mechanical audit with zero errors. The final message states in a few lines which
+  model runs which kind of thread and names the escalation, without pasting the ruleset.

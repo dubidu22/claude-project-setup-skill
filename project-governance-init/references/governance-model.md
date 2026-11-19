@@ -129,12 +129,31 @@ cannot do this is replaced rather than trusted.
 
 These are configured separately because they answer different questions:
 
-- **Model routing** is about judgement: which model runs the coordinator, which
-  runs implementation and critical review, which runs routine review, audit
-  and KB. Changing it changes *quality*.
+- **Model routing** is about judgement: which model runs each kind of thread.
+  Changing it changes *quality*.
 - **Token economy** is about spend and pace: concurrency, replacement
   threshold, watchdog cadence, review-round caps, audit depth, KB cadence,
   reporting verbosity, CI offloading. Changing it changes *cost and speed*.
+
+The owner picks the models at setup. Six slots, because they need different
+strengths:
+
+| Slot | Runs | What it needs |
+|---|---|---|
+| `coordinator` | the one long-lived chat | judgement in few, short turns |
+| `specify` | interview, research, acceptance criteria | the strongest reasoning: every thread builds on its output |
+| `critical_work` | implementation and review of critical PRs, escalations | strong; a critical reviewer is never weaker than the author |
+| `implementation` | routine implementation | can be cheaper: frozen criteria, verify steps, CI and review catch its misses |
+| `review_kb_audit` | routine review, KB, audit | can be cheaper |
+| `operations` | dispatcher, assist | mechanical work; the cheapest that follows instructions |
+
+Presets (`economy`, `balanced`, `max`) fill the slots and every slot can be
+changed; names carry no version numbers so they do not go stale. A cheaper
+routine model is a bet that it does not need more review rounds; the review
+ledger's rounds per PR is the number to watch. When routine implementation is
+weaker than critical work, `REV-04` moves a PR that still has must-fix
+findings after `escalate_after_round` rounds to a fresh thread on the
+critical-work model. Models are never switched inside a thread (`THR-09`).
 
 Coupling them ("frugal means cheaper models") is the usual mistake. A frugal
 profile with strong models on critical paths is cheaper *and* safer than a
@@ -189,14 +208,14 @@ D-001. The invariants are the things that, when violated, caused real damage:
 |---------|-----|-------|
 | header | — | version, date, project, repository, owner, timezone, `authority` precedence list |
 | `project_profile` | — | stack preset, target platforms, fast checks, local env, lanes, labels, mapping note, `workspace_root`, `state_file`, `plans_dir` |
-| `execution_profile` | — | `model_routing` (3 roles) and `token_economy` (profile name + 10 numbers/enums) |
+| `execution_profile` | — | `model_routing` (6 slots) and `token_economy` (profile name + 10 numbers/enums) |
 | `meta` | META-01..02 | ruleset edits are critical; state lives elsewhere |
 | `roles` | ROLE-01..13 | one rule per role, plus owner hand steps and the approval rule; ROLE-10 (specify) and ROLE-11 (dispatcher) only when enabled |
 | `autonomy` | AUTO-01..03 | horizon, what waits for the owner, working ahead |
 | `lanes` | LANE-01..04 | batching, concurrency cap, ownership + infra lock, release-branch exception |
 | `threads_and_watchdog` | THR-01..12 | onboarding + fitness check, atomic replacement, watchdog, where plans/reports go |
 | `plans_and_criticality` | PLAN-01..06, CRIT-01..02 | plan-before-code, acceptance contracts (PLAN-03..06, when `acceptance_contracts` is on), what is critical, what critical requires |
-| `pull_requests_and_reviews` | PR-01..03, REV-01..03, MRG-01 | title format, CI-before-review, branch freeze, round caps, report format, criterion proof (REV-03), merge protocol |
+| `pull_requests_and_reviews` | PR-01..03, REV-01..04, MRG-01 | title format, CI-before-review, branch freeze, round caps, report format, criterion proof (REV-03), merge protocol |
 | `testing_and_ci` | TST-01..02, CI-01 | tests first, never weaken tests, fast vs full matrix |
 | `github_kb_and_release` | GH-01, KB-01, REL-01 | issues same day, decision logging, release branching |
 | `hard_invariants_and_owner_prefs` | INV-01.., PREF-01 | licence gate, layer boundaries, telemetry ban, custom invariants, owner formatting prefs |

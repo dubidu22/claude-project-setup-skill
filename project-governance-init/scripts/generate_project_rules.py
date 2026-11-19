@@ -14,8 +14,9 @@ Supports both:
 
 Config keys (see --dump-schema for defaults): project_name, repo_slug, is_public,
 owner_name, owner_gh, timezone, local_os_shell, local_clone_path, workspace_root,
-stack_key, fast_checks, target_platforms, coordinator_model, critical_worker_model,
-standard_worker_model, profile_key, token_cfg{...}, autonomy_horizon, round4_hard_stop,
+stack_key, fast_checks, target_platforms, model_preset, coordinator_model, specify_model,
+critical_model, implementation_model, review_model, ops_model, escalate_after_round,
+profile_key, token_cfg{...}, autonomy_horizon, round4_hard_stop,
 owner_hand_steps, notify_triggers, execution_lanes, ownership_labels, lane_mapping_note,
 allow_parallel_release_branch, no_telemetry, banned_licences, custom_invariants,
 acceptance_contracts, dispatcher, cache_ttl_minutes, coordinator_compact_at_tokens, active_milestones, today.
@@ -171,6 +172,45 @@ def header(stage_num: int, title: str, explanation: str) -> None:
     print("=" * 72)
 
 
+# Model routing presets. Names carry no version numbers on purpose: versions go
+# stale, and the owner types the names their model picker shows.
+MODEL_SLOTS = (
+    ("coordinator_model", "coordinator", "Coordinator (lives for the whole project)"),
+    ("specify_model", "specify", "Specify threads (interview, research, acceptance criteria)"),
+    ("critical_model", "critical_work", "Critical work: implementation and review of critical PRs, escalations"),
+    ("implementation_model", "implementation", "Routine implementation"),
+    ("review_model", "review_kb_audit", "Routine review, KB and audit threads"),
+    ("ops_model", "operations", "Dispatcher and assist threads"),
+)
+MODEL_PRESETS: dict[str, dict[str, str]] = {
+    "economy": {
+        "coordinator_model": "Opus",
+        "specify_model": "Opus (high effort)",
+        "critical_model": "Opus (high effort)",
+        "implementation_model": "Sonnet (high effort)",
+        "review_model": "Sonnet (high effort)",
+        "ops_model": "Sonnet",
+    },
+    "balanced": {
+        "coordinator_model": "Opus",
+        "specify_model": "Opus (high effort)",
+        "critical_model": "Opus (high effort)",
+        "implementation_model": "Opus (medium effort)",
+        "review_model": "Opus (medium effort)",
+        "ops_model": "Sonnet",
+    },
+    "max": {
+        "coordinator_model": "Fable",
+        "specify_model": "Fable",
+        "critical_model": "Opus (high effort)",
+        "implementation_model": "Opus (high effort)",
+        "review_model": "Opus (medium effort)",
+        "ops_model": "Sonnet",
+    },
+}
+DEFAULT_MODEL_PRESET = "balanced"
+
+
 def default_config(project_name: str = "my-project") -> dict[str, Any]:
     stack_key = "python_cli_or_service"
     preset = STACK_PRESETS[stack_key]
@@ -189,9 +229,9 @@ def default_config(project_name: str = "my-project") -> dict[str, Any]:
         "stack_key": stack_key,
         "fast_checks": preset["fast_checks"],
         "target_platforms": ["ubuntu-latest", "macos-latest", "windows-latest"],
-        "coordinator_model": "Fable 5.1",
-        "critical_worker_model": "Opus 5.5 high",
-        "standard_worker_model": "Opus 5.5 medium",
+        "model_preset": DEFAULT_MODEL_PRESET,
+        **MODEL_PRESETS[DEFAULT_MODEL_PRESET],
+        "escalate_after_round": 2,
         "profile_key": profile_key,
         "token_cfg": dict(TOKEN_PROFILES[profile_key]),
         "autonomy_horizon": "until v1.0 is finished",
@@ -222,7 +262,26 @@ def default_config(project_name: str = "my-project") -> dict[str, Any]:
 
 
 def normalize_config(raw: dict[str, Any]) -> dict[str, Any]:
+    raw = dict(raw)
     base = default_config(raw.get("project_name", "my-project"))
+    # A named preset fills the six model slots; explicit slot keys below still win.
+    preset = raw.get("model_preset")
+    if preset in MODEL_PRESETS:
+        base.update(MODEL_PRESETS[preset])
+    elif preset not in (None, "custom"):
+        print(f"warning: unknown model_preset '{preset}' ignored", file=sys.stderr)
+        raw.pop("model_preset")
+    # Configs written before the routing was split had two worker models.
+    old_critical = raw.pop("critical_worker_model", None)
+    old_standard = raw.pop("standard_worker_model", None)
+    if old_critical or old_standard:
+        raw.setdefault("model_preset", "custom")
+        if old_critical:
+            for k in ("critical_model", "implementation_model", "specify_model"):
+                raw.setdefault(k, old_critical)
+        if old_standard:
+            for k in ("review_model", "ops_model"):
+                raw.setdefault(k, old_standard)
     stack_key = raw.get("stack_key", base["stack_key"])
     if stack_key in STACK_PRESETS:
         preset = STACK_PRESETS[stack_key]
@@ -246,6 +305,10 @@ def normalize_config(raw: dict[str, Any]) -> dict[str, Any]:
         elif v is not None:
             base[k] = v
 
+    if base.get("model_preset") in MODEL_PRESETS and any(
+        base[k] != v for k, v in MODEL_PRESETS[base["model_preset"]].items()
+    ):
+        base["model_preset"] = "custom"
     base["workspace_root"] = str(base["workspace_root"]).rstrip("/") or "/"
     return base
 
@@ -293,9 +356,20 @@ def run_wizard() -> dict[str, Any]:
         "Assigns intelligence tiers to roles independently from token-saving controls\n"
         "(concurrency, compression replacement threshold, watchdog interval, audit scope).",
     )
-    coordinator_model = ask("Coordinator model", "Fable 5.1")
-    critical_worker_model = ask("Critical implementation & review model", "Opus 5.5 high")
-    standard_worker_model = ask("Standard review, audit & KB model", "Opus 5.5 medium")
+    print("\nModel presets (every slot can be changed afterwards):")
+    for name, slots in MODEL_PRESETS.items():
+        print(f"  {name:9s} " + "; ".join(f"{label}: {slots[key]}" for key, label, _ in MODEL_SLOTS))
+    model_preset = ask_choice("Model preset", [*MODEL_PRESETS, "custom"], DEFAULT_MODEL_PRESET)
+    preset_models = MODEL_PRESETS.get(model_preset, MODEL_PRESETS[DEFAULT_MODEL_PRESET])
+    print("Type each model as your model picker shows it, or press Enter to keep the suggestion.")
+    models = {key: ask(desc, preset_models[key]) for key, _, desc in MODEL_SLOTS}
+    if model_preset != "custom" and models != preset_models:
+        model_preset = "custom"
+    escalate_after_round = 2
+    if models["implementation_model"] != models["critical_model"]:
+        escalate_after_round = int(
+            ask("Hand a routine PR to the critical-work model after this many review rounds with must-fix findings (0 = never)", "2")
+        )
 
     print("\nToken Economy Profiles:")
     for key, prof in TOKEN_PROFILES.items():
@@ -424,9 +498,9 @@ def run_wizard() -> dict[str, Any]:
         "stack_key": stack_key,
         "fast_checks": fast_checks,
         "target_platforms": target_platforms,
-        "coordinator_model": coordinator_model,
-        "critical_worker_model": critical_worker_model,
-        "standard_worker_model": standard_worker_model,
+        "model_preset": model_preset,
+        **models,
+        "escalate_after_round": escalate_after_round,
         "profile_key": profile_key,
         "cache_ttl_minutes": cache_ttl_minutes,
         "coordinator_compact_at_tokens": coordinator_compact_at_tokens,
@@ -478,6 +552,14 @@ def render_rules_yaml(cfg: dict[str, Any]) -> str:
             "ledgers, round reports and PR state at hand-offs instead of relaying messages between threads."
         )
 
+    escalation_rules: list[str] = []
+    esc = int(cfg.get("escalate_after_round", 2) or 0)
+    if esc > 0 and cfg["implementation_model"] != cfg["critical_model"]:
+        escalation_rules = [
+            "  - id: REV-04",
+            f"    applies_to: {ops}",
+            f"    rule: {yaml_quote('A non-critical PR that still has must-fix findings after review round ' + str(esc) + ' goes to a fresh implementation thread on the critical_work model, started from the round reports; the previous thread stops. A running thread never changes its model (THR-09).')}",
+        ]
     extra_role_rules: list[str] = []
     contract_plan_rules: list[str] = []
     contract_review_rules: list[str] = []
@@ -572,9 +654,7 @@ def render_rules_yaml(cfg: dict[str, Any]) -> str:
         "",
         "execution_profile:",
         "  model_routing:",
-        f"    coordinator: {yaml_quote(cfg['coordinator_model'])}",
-        f"    implementation_and_critical_review: {yaml_quote(cfg['critical_worker_model'])}",
-        f"    standard_review_audit_and_kb: {yaml_quote(cfg['standard_worker_model'])}",
+        *[f"    {label}: {yaml_quote(cfg[key])}" for key, label, _ in MODEL_SLOTS],
         "  token_economy:",
         f"    profile_name: {cfg['profile_key']}",
         f"    max_concurrent_lanes: {t['max_concurrent_lanes']}",
@@ -722,7 +802,7 @@ def render_rules_yaml(cfg: dict[str, Any]) -> str:
         '    rule: "A change is critical if it touches layer contracts, core data structures, KB process/architecture docs (excluding daily decision-log batch PRs), golden/regression files, packaging/release/CI, safety mechanisms, licences, user-file deletion paths, network calls, or carries risk:high."',
         "  - id: CRIT-02",
         "    applies_to: all",
-        '    rule: "Critical work requires coordinator plan approval, review on implementation_and_critical_review model, exact fix lists, issues for all deferred items, and full multi-platform CI on the final round."',
+        '    rule: "Critical work requires coordinator plan approval, implementation and review on the critical_work model, exact fix lists, issues for all deferred items, and full multi-platform CI on the final round."',
         "",
         "pull_requests_and_reviews:",
         "  - id: PR-01",
@@ -741,6 +821,7 @@ def render_rules_yaml(cfg: dict[str, Any]) -> str:
         "    applies_to: review",
         f"    rule: {yaml_quote('Round reports go to ' + ws + '/plans/review-pr<N>-round<K>.md with head SHA, verdict, verified checks, and numbered findings (B/M must-fix, S should-fix, N note). Every finding must be answered as fixed (with test proof), deferred (with issue link), or declined (with reason).')}",
         *contract_review_rules,
+        *escalation_rules,
         "  - id: MRG-01",
         "    applies_to: review",
         f"    rule: {yaml_quote('Squash-merge only on ' + merge_go + ', pinned to the reviewed head SHA, with required CI green (and all target_platforms green for critical PRs). If behind main, update via merge commit (never force-push), re-verify diff and CI, and merge on the new SHA.')}",
@@ -851,7 +932,19 @@ def main() -> int:
         action="store_true",
         help="Print default configuration JSON schema and exit",
     )
+    parser.add_argument(
+        "--model-presets",
+        action="store_true",
+        help="Print the model routing presets (slot -> model per preset) as JSON and exit",
+    )
     args = parser.parse_args()
+
+    if args.model_presets:
+        table = {
+            name: {label: slots[key] for key, label, _ in MODEL_SLOTS} for name, slots in MODEL_PRESETS.items()
+        }
+        print(json.dumps({"default": DEFAULT_MODEL_PRESET, "slots": {l: d for _, l, d in MODEL_SLOTS}, "presets": table}, indent=2))
+        return 0
 
     if args.dump_schema:
         print(json.dumps(default_config(), indent=2))

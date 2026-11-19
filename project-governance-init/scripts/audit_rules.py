@@ -66,7 +66,8 @@ REQUIRED_TOKEN_KEYS = {
     "non_critical_max_review_rounds",
     "critical_max_review_rounds",
 }
-REQUIRED_ROUTING_KEYS = {"coordinator", "implementation_and_critical_review", "standard_review_audit_and_kb"}
+LEGACY_ROUTING_KEYS = {"coordinator", "implementation_and_critical_review", "standard_review_audit_and_kb"}
+REQUIRED_ROUTING_KEYS = {"coordinator", "specify", "critical_work", "implementation", "review_kb_audit", "operations"}
 LONG_RULE_CHARS = 450
 MANY_RULES = 60
 
@@ -296,9 +297,15 @@ def run_checks(data: dict[str, Any], rules: list[Rule], raw_text: str, state_tex
     # --- A05 execution profile sanity ---
     routing = get_path(data, "execution_profile", "model_routing") or {}
     token = get_path(data, "execution_profile", "token_economy") or {}
-    if not isinstance(routing, dict) or not REQUIRED_ROUTING_KEYS <= set(routing):
-        missing = sorted(REQUIRED_ROUTING_KEYS - set(routing if isinstance(routing, dict) else {}))
+    have = set(routing) if isinstance(routing, dict) else set()
+    # Rulesets generated before the routing was split carry three keys; both shapes are valid.
+    wanted = LEGACY_ROUTING_KEYS if (have & LEGACY_ROUTING_KEYS) - {"coordinator"} else REQUIRED_ROUTING_KEYS
+    if not wanted <= have:
+        missing = sorted(wanted - have)
         f.append(Finding("A05", "WARN", f"model_routing missing: {', '.join(missing) or 'whole section'}", "execution_profile"))
+    blank = sorted(k for k in have if not str(routing.get(k) or "").strip())
+    if blank:
+        f.append(Finding("A05", "WARN", f"model_routing has no model for: {', '.join(blank)}", "execution_profile"))
     if not isinstance(token, dict) or not REQUIRED_TOKEN_KEYS <= set(token):
         missing = sorted(REQUIRED_TOKEN_KEYS - set(token if isinstance(token, dict) else {}))
         f.append(Finding("A05", "WARN", f"token_economy missing: {', '.join(missing) or 'whole section'}", "execution_profile"))
