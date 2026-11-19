@@ -3,10 +3,11 @@
 Deterministic checks for a pull request, so the rules that a machine can check are not left to prose.
 
     python3 pr_checks.py --config pr-checks.json --title "<PR title>" --labels "lane:cli,risk:low" \
-        --files changed.txt --commits commits.txt [--exemptions pr-check-exemptions.json] [--open-issues "12,15"] [--json]
+        --files changed.txt --commits commits.txt [--diff diff.txt] [--exemptions pr-check-exemptions.json] [--open-issues "12,15"] [--json]
 
     changed.txt   output of `git diff --name-status <base>...<head>` (plain paths, one per line, also work)
     commits.txt   output of `git log --format=%B <base>..<head>`
+    diff.txt      output of `git diff <base>...<head>` (optional; needed only for the comment check)
 
 What it checks (rule ids of the generated ruleset):
     title        PR-01   '<area>: <outcome> (#N)'
@@ -16,8 +17,14 @@ What it checks (rule ids of the generated ruleset):
                          (a docs label is open to every lane; core files need the lock label)
     critical     CRIT-01 a PR that touches a critical path carries risk:high
     tests        TST-02  deleted test files are listed as a warning for the reviewer
+    new docs     PR-05   a markdown file the PR adds lies under one of `doc_paths` (config). Summary, notes
+                         and report files nobody asked for fail. Needs `git diff --name-status` input:
+                         only files with status A count as new. Not checked when the config has no `doc_paths`
+    comments     PR-05   with --diff: added comment lines that narrate the change ("previously", "now uses",
+                         "as requested", ...) or carry a TODO without an issue number are listed as a
+                         warning for the reviewer. A word list cannot judge a comment, so this never fails
 
-Exemptions. A file that may break one of the path checks (ownership, unowned, lock, critical, tests) is
+Exemptions. A file that may break one of the path checks (ownership, unowned, lock, critical, tests, docs) is
 listed in pr-check-exemptions.json next to the config, never in a private allowlist and never by weakening
 a glob. Each entry says what it is:
 
@@ -37,7 +44,10 @@ Known gaps, on purpose. These checks stop accidents, not intent. They read the l
 they are given, so they are only as good as the workflow that passes them; a thread with write access to
 the workflow, the config or the exemptions file can change what is checked, which is why those files need
 the owner's review (CODEOWNERS) and the check must be required in branch protection. Ownership is by path
-only: a file moved into another lane's folder is owned by that lane from then on.
+only: a file moved into another lane's folder is owned by that lane from then on. The comment check is a
+word list over added lines that start with a comment marker: it misses trailing comments and narration in
+other words, and it flags honest comments that happen to use a listed phrase, which is why it only warns.
+The new-docs check sees markdown only; a notes file with another extension is the reviewer's to catch.
 
 A pull request that only changes governance files (the workspace folder) is exempt from the title, label
 and ownership checks: decision-log and contract pull requests follow other rules.
@@ -56,7 +66,19 @@ from pathlib import Path
 
 TITLE_RE = re.compile(r"^[^\s:][^:]*: \S.* \(#\d+\)$")
 CLOSING_RE = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+(?:[\w.-]+/[\w.-]+)?#\d+", re.IGNORECASE)
-EXEMPTABLE = ("ownership", "unowned", "lock", "critical", "tests")
+EXEMPTABLE = ("ownership", "unowned", "lock", "critical", "tests", "docs")
+DOC_FILE_RE = re.compile(r"\.(md|markdown|mdx)$", re.IGNORECASE)
+PROSE_FILE_RE = re.compile(r"\.(md|markdown|mdx|rst|txt|adoc)$", re.IGNORECASE)
+COMMENT_RE = re.compile(r"^\s*(?:#(?!!)|//|/\*|\*(?!/)|--\s|<!--|;;)\s*(.*)$")
+# phrases that describe the change or the conversation instead of the code
+NARRATION_RE = re.compile(
+    r"\b(?:previously|used to\b|no longer|as requested|as discussed|per (?:the )?(?:review|feedback|request)|"
+    r"changed (?:from|to)\b|was changed|now uses?\b|now we\b|we now\b|refactored|rewritten|"
+    r"(?:added|removed|updated|fixed|moved|renamed) (?:this|the|to|in|by|for)\b|new implementation|old implementation|"
+    r"review round|reviewer (?:asked|wanted|said))", re.IGNORECASE)
+TODO_RE = re.compile(r"\b(?:TODO|FIXME|HACK|XXX)\b")
+ISSUE_REF_RE = re.compile(r"#\d+|/issues/\d+")
+MAX_LISTED = 12
 MIN_REASON = 20
 
 TEST_FILE_RE = re.compile(r"(^|/)(tests?|__tests__|spec)/|(^|/)test_[^/]+\.py$|[._-](test|spec)\.[A-Za-z]+$|_test\.[A-Za-z]+$")
@@ -135,8 +157,43 @@ def exemption_errors(entries: object) -> list[str]:
     return out
 
 
+def comment_notes(diff: str, skip: list[str]) -> list[str]:
+    """`path:line: text` for added comment lines that narrate the change or hold a TODO without an issue.
+
+    Reads a unified diff. Prose files and paths matching `skip` are left out. Only lines that start with a
+    comment marker are seen; a trailing comment after code is not.
+    """
+    out: list[str] = []
+    path, line = "", 0
+    for raw in diff.splitlines():
+        if raw.startswith("+++ "):
+            name = raw[4:].strip()
+            path = "" if name == "/dev/null" else (name[2:] if name.startswith("b/") else name)
+            continue
+        if raw.startswith("--- "):
+            continue
+        m = re.match(r"@@ -\d+(?:,\d+)? \+(\d+)", raw)
+        if m:
+            line = int(m.group(1))
+            continue
+        if not path or raw.startswith("\\"):
+            continue
+        if raw.startswith("+"):
+            c = COMMENT_RE.match(raw[1:])
+            if c and not PROSE_FILE_RE.search(path) and not matches(path, skip):
+                text = c.group(1).strip()
+                if NARRATION_RE.search(text):
+                    out.append(f"{path}:{line}: {text[:90]}")
+                elif TODO_RE.search(text) and not ISSUE_REF_RE.search(text):
+                    out.append(f"{path}:{line}: {text[:90]} (no issue number)")
+            line += 1
+        elif not raw.startswith("-"):
+            line += 1
+    return out
+
+
 def run_checks(cfg: dict, title: str, labels: list[str], changes: list[tuple[str, str]], commits: str,
-               exemptions: list[dict] | None = None, open_issues: set[int] | None = None) -> list[dict]:
+               exemptions: list[dict] | None = None, open_issues: set[int] | None = None, diff: str | None = None) -> list[dict]:
     results: list[dict] = []
     used: list[tuple[dict, str]] = []
 
@@ -216,6 +273,25 @@ def run_checks(cfg: dict, title: str, labels: list[str], changes: list[tuple[str
     if deleted:
         add("tests", "WARN", f"test files deleted: {', '.join(deleted)}. The reviewer confirms none was removed to turn CI green (TST-02)")
 
+    if isinstance(cfg.get("doc_paths"), list):
+        stray = [p for status, p in changes if status == "A" and DOC_FILE_RE.search(p)
+                 and not matches(p, cfg["doc_paths"]) and not (governance and matches(p, governance)) and not exempt("docs", p)]
+        if stray:
+            add("new docs", "FAIL", f"new markdown file(s) outside the documentation paths ({', '.join(cfg['doc_paths']) or 'none set'}): "
+                f"{', '.join(stray)}. Reports and notes go in the PR body or the ledger; a document the plan names goes "
+                "under a documentation path (PR-05)")
+        else:
+            add("new docs", "ok", "no new markdown file outside the documentation paths")
+
+    if diff is not None:
+        notes = comment_notes(diff, governance)
+        if notes:
+            more = f" (and {len(notes) - MAX_LISTED} more)" if len(notes) > MAX_LISTED else ""
+            add("comments", "WARN", "added comments that may narrate the change instead of saying why the code is as it is: "
+                + "; ".join(notes[:MAX_LISTED]) + more + ". The reviewer decides (PR-05)")
+        else:
+            add("comments", "ok", "no added comment matches the narration word list")
+
     seen: set[tuple[int, str]] = set()
     for e, path in used:
         if (id(e), path) in seen:
@@ -240,6 +316,7 @@ def main() -> int:
     ap.add_argument("--labels", default="", help="comma-separated labels on the pull request")
     ap.add_argument("--files", type=Path, required=True, help="file with `git diff --name-status` output")
     ap.add_argument("--commits", type=Path, required=True, help="file with the commit messages of the pull request")
+    ap.add_argument("--diff", type=Path, help="file with `git diff <base>...<head>` output; turns on the comment check")
     ap.add_argument("--exemptions", type=Path, help="exemptions file (default: pr-check-exemptions.json next to the config, if it exists)")
     ap.add_argument("--open-issues", help="comma-separated numbers of the open issues; a debt exemption whose issue is not among them fails")
     ap.add_argument("--json", action="store_true")
@@ -259,6 +336,7 @@ def main() -> int:
         cfg = json.loads(args.config.read_text(encoding="utf-8"))
         changes = read_changes(args.files.read_text(encoding="utf-8"))
         commits = args.commits.read_text(encoding="utf-8")
+        diff = args.diff.read_text(encoding="utf-8", errors="replace") if args.diff else None
     except (OSError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -266,7 +344,7 @@ def main() -> int:
         print("error: the config must be a JSON object", file=sys.stderr)
         return 2
     labels = [l.strip() for l in args.labels.split(",") if l.strip()]
-    results = run_checks(cfg, args.title, labels, changes, commits, exemptions, open_issues)
+    results = run_checks(cfg, args.title, labels, changes, commits, exemptions, open_issues, diff)
     failed = [r for r in results if r["status"] == "FAIL"]
     if args.json:
         print(json.dumps(results, indent=2))

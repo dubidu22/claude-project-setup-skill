@@ -262,7 +262,7 @@ D-001. The invariants are the things that, when violated, caused real damage:
 | Section | Ids | Holds |
 |---------|-----|-------|
 | header | — | `version` (minor number goes up whenever a regeneration changes the content), `date` (of the last generation), project, repository, owner, timezone, `authority` precedence list (section 11) |
-| `project_profile` | — | stack preset, environment, target platforms, fast checks, local env, lanes, labels, mapping note, `critical_paths`, `workspace_root`, `state_file`, `plans_dir`, `rules_by_role`, and for an in-repo workspace `default_branch` and `governance_branch` |
+| `project_profile` | — | stack preset, environment, target platforms, fast checks, local env, lanes, labels, mapping note, `critical_paths`, `doc_paths`, `workspace_root`, `state_file`, `plans_dir`, `rules_by_role`, and for an in-repo workspace `default_branch` and `governance_branch` |
 | `execution_profile` | — | `model_routing` (6 slots) and `token_economy` (profile name plus numbers and enums) |
 | `meta` | META-01..03 | ruleset edits are critical; state lives elsewhere; a correction given twice becomes a check, not a rule |
 | `roles` | ROLE-01..14 | one rule per role, plus owner hand steps and the approval rule; ROLE-10 (specify) and ROLE-11 (dispatcher) only when enabled |
@@ -270,7 +270,7 @@ D-001. The invariants are the things that, when violated, caused real damage:
 | `lanes` | LANE-01..04 | batching, concurrency cap, ownership (written from the labels that exist), release-branch exception |
 | `threads_and_watchdog` | THR-01..14 | onboarding from the extract + fitness check, replacement, watchdog, one writer per file, how threads are started (THR-10, coordinator and dispatcher), planned compaction (THR-11, Claude Code only), the governance branch and its worktree (THR-13) and the default branch as the copy that counts (THR-14), both in-repo only |
 | `plans_and_criticality` | PLAN-01..05, CRIT-01..03 | plan-before-code, acceptance contracts (PLAN-03..05, when `acceptance_contracts` is on), what is critical, what critical requires, who decides it |
-| `pull_requests_and_reviews` | PR-01..04, REV-01..06, MRG-01..02 | title format, CI-before-review, branch freeze, round caps and the hard stop, report format, criterion proof (REV-03), escalation by model (REV-04), fixes at the root and finding kinds (REV-05), merge protocol with "no open must-fix finding" and the ledger gate |
+| `pull_requests_and_reviews` | PR-01..05, REV-01..06, MRG-01..02 | title format, CI-before-review, branch freeze, round caps and the hard stop, report format, criterion proof (REV-03), escalation by model (REV-04), fixes at the root and finding kinds (REV-05), merge protocol with "no open must-fix finding" and the ledger gate |
 | `testing_and_ci` | TST-01..02, VER-01, CI-01 | tests first, never weaken tests, proof by running the product as a user would (VER-01, with `runtime_verification`), fast vs full matrix |
 | `github_kb_and_release` | GH-01, KB-01, REL-01 | issues same day, decision logging with the owner's message quoted, release branching |
 | `hard_invariants_and_owner_prefs` | INV-01.., PREF-01 | licence gate; then, each only if configured: layer-boundary check, telemetry ban, custom invariants; each says what enforces it ("Enforced by: ..."); owner timezone and formatting wishes |
@@ -543,6 +543,26 @@ How the generated setup applies this:
 - **A comment is not a fix** (`REV-05`). A code comment, a document or a note
   that explains why a workaround is fine leaves the finding open. Comments
   are not enforceable, go stale, and give the next thread a ready excuse.
+- **Comments say why, and only why** (`PR-05`). Threads comment far more
+  than people do: they restate the code, describe the change ("now uses a
+  set instead of a list") and record who asked for it. All of that is stale
+  the moment the PR merges, and the next thread reads it as fact or copies
+  the habit. A comment earns its place when it gives a reason the code
+  cannot show: a constraint, a trap, a link to the issue. The rule covers
+  new and changed lines; old comments are cleaned up in a PR of their own,
+  not mixed into feature work. `pr_checks.py --diff` lists added comments
+  that match a word list of narration phrases, and TODOs without an issue
+  number, as a warning for the reviewer. Repeats show up in `ledger_tool.py
+  stats` under the kind `narrating-comment`.
+- **No file that nobody asked for** (`PR-05`). Left alone, a thread leaves
+  `SUMMARY.md`, `NOTES.md` or `IMPLEMENTATION.md` behind. Nobody maintains
+  them, and later threads trust them. A thread creates only files the
+  rules, the approved plan or the owner named; what it wants to report goes
+  in the PR body or the ledger. `pr_checks.py` fails a PR that adds a
+  markdown file outside `project_profile.doc_paths` (default: `docs/**`,
+  any `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `.github/**`). The
+  governance workspace is not affected: plans, round reports and the KB are
+  files the rules name.
 - **Things that need nuance get banned, not explained.** If an API or
   pattern is misused again and again, the project forbids it in product code
   with a lint rule and allows it in one named place. Record it as an
@@ -614,6 +634,9 @@ determined to get around them, and none of them is a security boundary:
   round entry or an override file is a record, not proof. The merge itself
   needs the go named in `MRG-01`, and an override needs the owner's own
   message.
+- The comment check is a word list over added lines that begin with a
+  comment marker. It misses a great deal and flags some honest comments, so
+  it only warns. The new-docs check sees markdown only.
 - The regressed marker goes by dates and PR numbers, not by which commits a
   branch contains. It can flag a PR that branched before the fix.
 - The comparison with the default branch (`THR-14`) needs a git checkout

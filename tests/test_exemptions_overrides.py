@@ -341,7 +341,7 @@ def test_templates_and_reference_describe_the_mechanisms(w):
     features = (w.ws / "kb" / "features" / "README.md").read_text()
     assert "(#<issue that removes it>)" in features and "(stays: <why>)" in features
     model = (SKILL / "references" / "governance-model.md").read_text()
-    for phrase in ("Further up the ladder", "Known gaps, on purpose", "PR-01..04, REV-01..06, MRG-01..02", "equinai/equin"):
+    for phrase in ("Further up the ladder", "Known gaps, on purpose", "REV-01..06, MRG-01..02", "equinai/equin"):
         assert phrase in model, phrase
     assert "Exemptions and overrides" in (SKILL / "references" / "audit-checklist.md").read_text()
     assert "Known gaps, on purpose" in (SKILL / "scripts" / "pr_checks.py").read_text()

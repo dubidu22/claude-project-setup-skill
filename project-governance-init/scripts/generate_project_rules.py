@@ -241,6 +241,8 @@ DEFAULT_MODEL_PRESET = "balanced"
 
 
 ENVIRONMENTS = ("claude_ai_project", "claude_code")
+# Where a pull request may add markdown files (PR-05). Everything else needs the plan or an exemption.
+DEFAULT_DOC_PATHS = ["docs/**", "**/README.md", "CHANGELOG.md", "CONTRIBUTING.md", ".github/**"]
 DEFAULT_CRITICAL_AREAS = [
     "layer contracts",
     "core data structures",
@@ -322,6 +324,7 @@ def default_config(project_name: str = "my-project") -> dict[str, Any]:
         "telemetry_check": "",
         "custom_invariants": [],
         "label_paths": [],
+        "doc_paths": list(DEFAULT_DOC_PATHS),
         "runtime_verification": True,
         "owner_prefs": [],
         "acceptance_contracts": True,
@@ -419,6 +422,12 @@ def validate_config(cfg: dict[str, Any]) -> None:
             problems.append(f"label_paths: '{entry}' names a label that is not in ownership_labels")
         elif glob.startswith("/") or ".." in glob.split("/"):
             problems.append(f"label_paths: '{entry}': the glob is a path from the repository root, without a leading / or ..")
+    for glob in cfg.get("doc_paths") if isinstance(cfg.get("doc_paths"), list) else []:
+        if isinstance(glob, str) and (not glob.strip() or glob.strip() != glob or glob.startswith("/") or ".." in glob.split("/")):
+            problems.append(f"doc_paths: '{glob}': a glob is a path from the repository root, without a leading / or ..")
+        elif isinstance(glob, str) and glob in ("*", "**", "**/*", "**/*.md", "*.md"):
+            problems.append(f"doc_paths: '{glob}' allows new markdown files everywhere or all over the root, which is what PR-05 forbids; "
+                            "name the folders and file names instead, e.g. docs/** and **/README.md")
     for key in ("default_branch", "governance_branch"):
         v = cfg.get(key)
         if isinstance(v, str) and v and not re.fullmatch(r"[A-Za-z0-9._/-]+", v):
@@ -1014,6 +1023,12 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
               "pr-check-exemptions.json as sanctioned (permanent, with the reason) or debt (with the reason and "
               "the issue that removes it), in a PR the owner reviews. Never widen a path glob, drop a label or "
               "skip the check to get a PR through; an exemption whose issue is closed is removed."),
+        *rule("PR-05", "implementation,review",
+              "A comment says why the code is as it is, never what it does, what changed or who asked; add no other. "
+              "The reviewer treats a narrating or change-history comment as a finding (kind narrating-comment). "
+              "Create no file the rules, the approved plan or the owner did not name: no summary, notes or report "
+              "files, and new markdown only under project_profile.doc_paths. Reports go in the PR body or the "
+              "ledger."),
         *rule("REV-01", "review",
               "Non-critical PRs run up to execution_profile.token_economy.non_critical_max_review_rounds rounds; "
               "should-fix leftovers are then deferred to issues, must-fix findings never (" + must_fix_route + "). "
@@ -1096,6 +1111,7 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
         f"  lane_mapping_note: {yaml_quote(cfg['lane_mapping_note'])}",
         *([f"  critical_paths: {yaml_list(cfg['critical_paths'])}"] if cfg["critical_paths"] else []),
         *([f"  label_paths: {yaml_list(cfg['label_paths'])}"] if cfg["label_paths"] else []),
+        f"  doc_paths: {yaml_list(cfg['doc_paths'])}",
         f"  workspace_root: {yaml_quote(ws)}",
         f"  state_file: {yaml_quote(ws + '/project-state.yaml')}",
         f"  plans_dir: {yaml_quote(ws + '/plans')}",
@@ -1610,6 +1626,8 @@ def derive_config(rules_path: Path, state_path: Path | None) -> tuple[dict[str, 
         cfg["critical_paths"] = [str(x) for x in prof["critical_paths"]]
     if isinstance(prof.get("label_paths"), list):
         cfg["label_paths"] = [str(x) for x in prof["label_paths"]]
+    if isinstance(prof.get("doc_paths"), list):
+        cfg["doc_paths"] = [str(x) for x in prof["doc_paths"]]
 
     execp = data.get("execution_profile") if isinstance(data.get("execution_profile"), dict) else {}
     routing = execp.get("model_routing") if isinstance(execp.get("model_routing"), dict) else {}
