@@ -36,11 +36,12 @@ criteria:
 
 core_probe: "<the one end-to-end check that proves the goal sentence from a fresh clone>"
 
-work_packages:               # a few issues, batched by lane; every must/should criterion in exactly one
+work_packages:               # one package = one thread, one PR, one review round; every must/should criterion in exactly one
   - key: wp1
     title: "<what this package delivers>"
     label: lane:core         # one file-ownership label from the ruleset
-    criteria: [AC-1]
+    criteria: [AC-1]         # about six at most; split by what can be built and reviewed on its own
+    # after: [other-key]     # only if this package cannot start before another one is merged
 
 cut: []                      # could items that left the contract: {text: "...", reason: "..."} -> backlog issues
 

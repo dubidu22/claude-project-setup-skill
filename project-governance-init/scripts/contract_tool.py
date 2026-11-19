@@ -65,6 +65,7 @@ ROADMAP_STATUSES = {"planned", "active", "done", "dropped"}
 LONG_CRITERION = 220
 MANY_MUST = 40
 MANUAL_SHARE = 1 / 3
+MAX_PACKAGE_CRITERIA = 6  # rule of thumb: what one thread builds and one review round checks
 
 
 @dataclass
@@ -123,7 +124,7 @@ def contract_hash(data: dict[str, Any]) -> str:
 # Lint
 # ----------------------------------------------------------------------------
 
-def lint(data: dict[str, Any]) -> list[Finding]:
+def lint(data: dict[str, Any], max_package_criteria: int = MAX_PACKAGE_CRITERIA) -> list[Finding]:
     f: list[Finding] = []
 
     def add(code: str, sev: str, msg: str, where: str = "") -> None:
@@ -296,6 +297,35 @@ def lint(data: dict[str, Any]) -> list[Finding]:
                     add("C033", "ERROR", f"{cid} is in two work packages ({placed[cid]} and {key}); one owner per criterion", key)
                 else:
                     placed[cid] = key
+        sizes: dict[str, int] = {}
+        after_map: dict[str, list[str]] = {}
+        for wp in packages:
+            if not isinstance(wp, dict):
+                continue
+            key = s(wp.get("key"))
+            sizes[key] = len(wp.get("criteria") or []) if isinstance(wp.get("criteria"), list) else 0
+            after = wp.get("after") or []
+            after = [s(a) for a in (after if isinstance(after, list) else [after])]
+            after_map[key] = after
+            for a in after:
+                if a == key or a not in keys:
+                    add("C036", "ERROR", f"after: '{a}' is not another work package of this contract", key)
+        for key, n in sizes.items():
+            if max_package_criteria > 0 and n > max_package_criteria:
+                add("C035", "WARN", f"{n} criteria in one package; more than about {max_package_criteria} is usually too much for one thread and one review round (rule of thumb). Split it into slices that can each be built and reviewed on their own", key)
+        singles = [k for k, n in sizes.items() if n == 1]
+        if len(sizes) >= 4 and len(singles) > len(sizes) / 2:
+            add("C035", "INFO", f"{len(singles)} of {len(sizes)} packages hold a single criterion; every thread start has a fixed cost, so merge related ones", "work_packages")
+
+        def reaches(start: str, target: str, seen_keys: set[str]) -> bool:
+            for nxt in after_map.get(start, []):
+                if nxt == target or (nxt not in seen_keys and reaches(nxt, target, seen_keys | {nxt})):
+                    return True
+            return False
+
+        cyc = sorted(k for k in after_map if k and reaches(k, k, {k}))
+        if cyc:
+            add("C036", "ERROR", f"work packages wait for each other in a circle: {', '.join(cyc)}", "work_packages")
         loose = [c for c in in_scope if c and c not in placed]
         if loose:
             add("C033", "ERROR", f"not in any work package: {', '.join(loose)}", "work_packages")
@@ -397,8 +427,12 @@ def issue_drafts(path: Path, data: dict[str, Any]) -> list[dict[str, Any]]:
             if c:
                 v = c.get("verify") if isinstance(c.get("verify"), dict) else {}
                 rows.append(f"- [ ] **{i}** ({s(c.get('priority'))}) {s(c.get('text'))}\n  Verify ({s(v.get('type'))}): `{s(v.get('how'))}`")
+        after = wp.get("after") or []
+        after = [s(a) for a in (after if isinstance(after, list) else [after])]
+        titles = {s(w.get("key")): s(w.get("title")) for w in data.get("work_packages") or [] if isinstance(w, dict)}
+        after_line = ["Start after: " + "; ".join(f"[{cid}] {titles.get(a, a)}" for a in after), ""] if after else []
         body = "\n".join([
-            f"Goal of {ms or cid}: {s(data.get('goal'))}", "",
+            f"Goal of {ms or cid}: {s(data.get('goal'))}", "", *after_line,
             "## Acceptance criteria", *rows, "",
             f"Source of truth: {ref}. The criteria are frozen there; to change one, change the contract (new version, owner approval), not this issue.",
         ])
@@ -499,6 +533,8 @@ def main() -> int:
     p_lint.add_argument("contract", type=Path)
     p_lint.add_argument("--json", action="store_true")
     p_lint.add_argument("--strict", action="store_true", help="exit 1 on WARN too")
+    p_lint.add_argument("--max-package-criteria", type=int, default=MAX_PACKAGE_CRITERIA,
+                        help=f"warn when a work package holds more criteria (default {MAX_PACKAGE_CRITERIA}, 0 = no check)")
     p_sum = sub.add_parser("summary", help="three-line hand-back for the coordinator")
     p_sum.add_argument("contract", type=Path)
     p_brief = sub.add_parser("brief", help="compact criteria view for worker threads")
@@ -549,7 +585,7 @@ def main() -> int:
         print(json.dumps(drafts, indent=2, ensure_ascii=False) if args.json else render_issues(drafts), end="" if not args.json else "\n")
         return 0
 
-    findings = lint(data)
+    findings = lint(data, getattr(args, "max_package_criteria", MAX_PACKAGE_CRITERIA))
     errors = [x for x in findings if x.severity == "ERROR"]
 
     if args.cmd == "lint":

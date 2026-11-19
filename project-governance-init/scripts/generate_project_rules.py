@@ -578,7 +578,7 @@ def render_rules_yaml(cfg: dict[str, Any]) -> str:
             f"    rule: {yaml_quote('Work on a milestone starts only from an owner-approved acceptance contract written by a specify thread. On pickup, lint it, log the approval as a D-number in the contract and the decision log, and mirror ' + ws + '/roadmap.yaml into project-state.yaml. Approved criteria are frozen; a change is a new version from specify.')}",
             "  - id: PLAN-04",
             "    applies_to: implementation",
-            '    rule: "Plans cite the acceptance-contract criterion ids they cover (read them with contract_tool.py brief); the PR body lists each covered criterion with the command run and its result. A /goal loop on criteria stops at execution_profile.token_economy.goal_turn_cap turns."',
+            '    rule: "One work package is one plan and one PR. Plans cite the acceptance-contract criterion ids they cover (read them with contract_tool.py brief); the PR body lists each covered criterion with the command run and its result. A /goal loop on criteria stops at execution_profile.token_economy.goal_turn_cap turns."',
             "  - id: PLAN-05",
             "    applies_to: coordinator",
             '    rule: "A milestone closes only when every must criterion and the core probe pass and every should criterion passes or has a deferred issue; log it as a D-entry. When the roadmap drops a milestone or a new contract version removes a criterion, start no new work on it, let open PRs finish their round, and ask the owner per open PR: merge or close."',

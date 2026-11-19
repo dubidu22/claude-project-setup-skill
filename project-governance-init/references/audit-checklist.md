@@ -74,6 +74,9 @@ size (governance-model section 9). First, habits that throw the cache away:
 - a new thread spawned per small fix while a warm thread on the same code exists
 - the coordinator woken many times a day for single questions or status
   updates, or reading diffs, logs or whole contracts
+- work packages of the wrong size: the implementation ledger shows
+  compactions on most PRs or the review ledger a third round on routine PRs
+  (too big), or many one-line PRs each from a fresh thread (too small)
 - plans and round reports without a current three-line handoff
 - a coordinator rule that forbids compaction outright, or one that has the
   coordinator compact after a long wait instead of before it

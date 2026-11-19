@@ -57,9 +57,13 @@ with a verify step each, add the core probe, do the Pareto cut. `could` items
 go to the contract's `cut` list with a reason, so they become backlog issues
 instead of disappearing.
 
-Then group every `must` and `should` criterion into a few `work_packages`,
-each with one `lane:*` label from the ruleset. Batch by lane, not by
-criterion: three to six packages is typical.
+Then group every `must` and `should` criterion into `work_packages`, each
+with one `lane:*` label from the ruleset. Size each package as one unit of
+work: one thread, one PR, one review round. That is about six criteria at
+most; split a bigger group by what can be built and reviewed on its own, and
+do not go down to one package per criterion. Add `after:` only where a
+package really cannot start before another is merged. If the milestone needs
+more than eight packages, propose splitting the milestone.
 
 Update `roadmap.yaml`: add or reorder entries, keep new ones `planned`. A
 milestone becomes `active` only together with an approved contract.
