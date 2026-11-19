@@ -13,7 +13,11 @@ One file per user-facing feature, `<feature>.md`, with four sections:
   the observable end state that shows it works.
 - `## Gotchas`: preconditions, seed data it needs, known traps. If a journey
   cannot pass because a precondition is missing, it fails and the reason is
-  written here; it is never weakened until it passes.
+  written here; it is never weakened until it passes. A trap is written as
+  `- <trap> (#<issue that removes it>)` or `- <trap> (stays: <why>)`. A
+  gotcha list is where problems wait to be fixed in the product, not a
+  place to learn to live with them: a thread that hits a trap reports it,
+  it does not memorise a way around it.
 
 Start with the three to five features users rely on most; add a file when a
 PR adds a feature. The PR that adds or changes a user-facing feature updates

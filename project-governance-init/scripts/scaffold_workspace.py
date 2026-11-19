@@ -277,6 +277,8 @@ def codeowners(cfg: dict[str, Any]) -> str:
     base = "/" + repo_path(cfg) + "/" if repo_path(cfg) else "/"
     owner = "@" + cfg["owner_gh"].lstrip("@")
     paths = [base + "claude-project-rules.yaml", base + "governance-config.json", base + "rules/"]
+    # the pull-request checks, their config and their exemptions: a thread must not be able to change what is checked
+    paths += ["/.github/governance/", "/.github/workflows/governance-pr-checks.yml"]
     if cfg["acceptance_contracts"]:
         paths += [base + "plans/contract-*", base + "roadmap.yaml"]
     width = max(len(p) for p in paths) + 2
@@ -386,6 +388,11 @@ def github_readme(cfg: dict[str, Any], names: list[str]) -> str:
         "`.github/workflows/governance-pr-checks.yml`. Try it locally first: "
         "`python3 pr_checks.py --config pr-checks.json --title \"cli: add import (#12)\" --labels lane:cli "
         "--files changed.txt --commits commits.txt`."
+        " `pr-check-exemptions.json` goes to `.github/governance/` too: a file that has to break a path check is "
+        "listed there as `sanctioned` (permanent, with a reason) or `debt` (with a reason and the issue that removes "
+        "it); nothing else lets a PR past a check (`PR-04`). The format is in the header of `pr_checks.py`. "
+        "Known gaps, on purpose: the checks stop accidents, not intent. They are only as strong as the branch "
+        "protection that requires them and the owner review of `.github/governance/`."
         + ("" if cfg["label_paths"] else " File ownership is not checked yet: set `label_paths` in the governance "
            "config (for example `lane:cli=src/cli/**`) and scaffold again."),
     ]
@@ -478,6 +485,12 @@ def main() -> int:
             "pr-checks.json": json.dumps(pr_checks_config(cfg), indent=2) + "\n",
             "pr-checks-workflow.yml": PR_CHECKS_WORKFLOW,
         }
+        # exemptions are the project's own record: created empty once, never overwritten, not even with --force
+        exemptions = out / "github-setup" / "pr-check-exemptions.json"
+        if not exemptions.exists():
+            results.append(write(exemptions, "[]\n", False))
+        else:
+            results.append(f"kept     {exemptions}")
         if flags["in_repo"]:
             files["CODEOWNERS"] = codeowners(cfg)
             if cfg["critical_paths"]:
