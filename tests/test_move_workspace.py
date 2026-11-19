@@ -179,6 +179,16 @@ def test_refuses_a_folder_that_is_not_a_generated_workspace(project, repo, tmp_p
     assert not (repo / "governance").exists()
 
 
+def test_refuses_a_flat_download(project, repo, tmp_path):
+    flat = tmp_path / "flat"
+    flat.mkdir()
+    for p in project.rglob("*"):
+        if p.is_file():
+            (flat / p.name).write_bytes(p.read_bytes())
+    refused(move(flat, repo, "--apply"), "have to be sorted into plans/, kb/, ledger/ and rules/ first")
+    assert not (repo / "governance").exists()
+
+
 def test_refuses_when_the_repo_is_not_a_checkout_or_the_target_is_taken(project, repo, tmp_path):
     plain = tmp_path / "plain"
     plain.mkdir()

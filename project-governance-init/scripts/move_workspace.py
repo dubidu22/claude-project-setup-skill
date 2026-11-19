@@ -121,6 +121,10 @@ def problems(source: Path, repo: Path, to: str) -> tuple[list[str], dict | None]
     if not (source / "claude-project-rules.yaml").is_file():
         out.append(f"{source} has no claude-project-rules.yaml: the folder does not look like a governance workspace. "
                    "Files downloaded from a Project have to keep the workspace layout (plans/, kb/, ledger/, rules/)")
+    elif not (source / "rules").is_dir() or not (source / "kb" / "decision-log.md").is_file():
+        out.append(f"{source} has the ruleset but not the workspace layout (no rules/ folder or no kb/decision-log.md). Files "
+                   "downloaded flat from a Project have to be sorted into plans/, kb/, ledger/ and rules/ first; this script "
+                   "does not guess where a file belongs")
     if not repo.is_dir() or not (repo / ".git").exists():
         out.append(f"--repo {repo} is not a git checkout (no .git there)")
     if not re.fullmatch(r"[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*", to) or ".." in to.split("/") or to.startswith(".git"):
