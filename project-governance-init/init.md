@@ -360,6 +360,60 @@ Nothing live is overwritten before the owner has seen the difference.
    decision-log entry says "migrated to generator version <v>" and lists the
    dropped rules.
 
+## Moving a Project's workspace into the repository
+
+For a project whose coordinator and files live in a claude.ai Project and
+whose code is pushed to a repository. After the move the threads run in
+Claude Code inside the repository, and the rules gain what needs a git
+checkout: the comparison with the default branch, one worktree per thread,
+the pull-request checks and the owner's review through CODEOWNERS.
+
+Run this in Claude Code, in the repository checkout. Do one project at a
+time, and not in the middle of a review round.
+
+1. **Get the files.** The owner downloads the Project's files into a folder
+   outside the repository, keeping the workspace layout (`plans/`, `kb/`,
+   `ledger/`, `rules/`, the ruleset, `governance-config.json`,
+   `project-state.yaml`). Do not ask for tokens or other secrets and do not
+   accept them: Claude Code pushes with the owner's own git credentials.
+   If there is no `governance-config.json`, this is not a move: use
+   "Migrating an existing ruleset" first, or a plain init in the repository.
+2. **Preview.** Nothing is written:
+   ```bash
+   python3 scripts/move_workspace.py --from <downloaded folder> --repo <repo checkout> --to governance
+   ```
+   It refuses when the source is not a generated workspace, the repository
+   is not a git checkout, the target folder already has files, or a file
+   looks like it holds a secret. It warns when the ledger shows open PRs.
+   Show the owner what it prints: the number of files, the settings that
+   change (`environment`, `workspace_root`, `default_branch`,
+   `governance_branch`), the rules added (`THR-11`, `THR-13`, `THR-14`) and
+   the rules reworded.
+3. **Stop and wait for the owner's yes.** The request to move is not the go;
+   the owner has not yet seen the preview. If the ledger shows open PRs,
+   ask whether to finish them first and recommend that.
+4. **Apply.** The same command with `--apply`. It copies the files,
+   regenerates the ruleset for the new place, refreshes the generated files,
+   writes `github-setup/`, audits, and lists files that still name the old
+   location. History files are left as they are; correct the others it
+   lists. If a step fails, the copied folder is removed again. The script
+   runs no git command.
+5. **Hand over**, in this order:
+   - Commit the folder on a branch and open a pull request into the default
+     branch. The owner reviews and merges it. Until then the audit reports
+     A14 and `contract_tool.py goal` and `pickup` refuse; both are expected
+     and must be gone afterwards.
+   - The owner applies `github-setup/` (labels, pull-request checks,
+     CODEOWNERS, branch protection).
+   - Every thread starts fresh in Claude Code from its role extract. The
+     chats in the Project stop. Two sets of threads on one repository is
+     the one thing a move must not produce; say so plainly.
+   - One decision-log entry: moved to `./governance`, ruleset version, date.
+   - The owner revokes tokens the Project used for pushing.
+
+The Project can stay as an archive or as the owner's place for scope talks.
+It is no longer a place where rules or contracts are changed.
+
 ## Things that are easy to get wrong
 
 - Lanes are concurrency slots; labels are file ownership. Do not generate one
