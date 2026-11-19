@@ -119,8 +119,11 @@ def test_generated_fixtures_are_current_and_sound(placed):
 
 def test_fixture_states_match_what_the_prompts_claim(placed):
     # an approved, picked-up contract with no findings at all
+    def real(result):  # the fixtures are placed outside git, which lint reports
+        return [f for f in findings(result) if f["code"] != "C039"]
+
     gov = placed["specify-plan-change"]
-    assert findings(run("contract_tool.py", "lint", gov / "plans/contract-001-csv-import.yaml", "--json")) == []
+    assert real(run("contract_tool.py", "lint", gov / "plans/contract-001-csv-import.yaml", "--json")) == []
     # the hash the owner quotes in the prompt is the hash of the draft they are shown
     for name in ("specify-approval-recorded",):
         gov = placed[name]
@@ -136,7 +139,7 @@ def test_fixture_states_match_what_the_prompts_claim(placed):
 
     plan = json.loads(run("contract_tool.py", "issues", gov / "plans/contract-002-budget-alerts.yaml", "--json").stdout)
     assert {d["key"]: d["action"] for d in plan["drafts"]} == {"budgets": "exists", "cut-1": "create"}
-    assert findings(run("contract_tool.py", "lint", gov / "plans/contract-002-budget-alerts.yaml", "--json")) == []
+    assert real(run("contract_tool.py", "lint", gov / "plans/contract-002-budget-alerts.yaml", "--json")) == []
     # live state survives the fixture build
     state = (placed["change-settings-economy"] / "project-state.yaml").read_text()
     assert "slow_down: true" in state and "Create the PyPI token" in state

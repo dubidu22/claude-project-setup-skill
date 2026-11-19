@@ -143,7 +143,10 @@ rule exists to get real decisions, not to block when there is nobody to decide.
    python3 scripts/audit_rules.py <workspace_root>/claude-project-rules.yaml --state <workspace_root>/project-state.yaml
    ```
    A fresh generation should come back without errors. If it does not, fix
-   the config, not the YAML. A warning about a label the mapping note
+   the config, not the YAML. In a repository the audit also compares the
+   files with the default branch (A14): until the pull request with the new
+   or changed ruleset is merged, it warns that they differ or are not there
+   yet. That is expected at this point and must be gone afterwards. A warning about a label the mapping note
    mentions but the label list lacks means the note needs rewording.
 4. Scaffold the workspace the rules point at (plans, KB with a D-001 entry,
    the ledger folder and its reader, coordinator instructions; `--github`
@@ -160,6 +163,10 @@ rule exists to get real decisions, not to block when there is nobody to decide.
      `dispatcher_instructions.md` into the dispatcher chat if there is one,
      each started on the model its slot names;
    - run `github-setup/create-labels.sh`;
+   - in-repo workspace: check that `default_branch` is the repository's real
+     default branch (the tools trust the remote, and report a ruleset that
+     says otherwise), and in checkouts that were not made by `git clone` run
+     `git remote set-head origin --auto` once;
    - in-repo workspace: create the `governance_branch`, add the CODEOWNERS
      lines and require code-owner review on the default branch (this is what
      makes contract approval and ruleset changes the owner's own review), and

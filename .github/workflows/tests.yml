@@ -44,6 +44,10 @@ jobs:
           python scripts/scaffold_workspace.py --from-json /tmp/ws/governance-config.json --out-dir /tmp/ws --github
           mkdir /tmp/fixture && cd /tmp/fixture
           bash "$GITHUB_WORKSPACE/project-governance-init/evals/specify-plan-change/place-files.sh"
+          # the fixture is an in-repo workspace: reviewed on main, worked on from the governance branch
+          git init -q -b main && git add -A
+          git -c user.name=ci -c user.email=ci@example.com commit -q -m "reviewed"
+          git checkout -q -b governance
           python governance/tools/contract_tool.py lint governance/plans/contract-001-csv-import.yaml --strict
           python governance/tools/contract_tool.py roadmap governance/roadmap.yaml --plans governance/plans
           python governance/tools/contract_tool.py goal governance/plans/contract-001-csv-import.yaml

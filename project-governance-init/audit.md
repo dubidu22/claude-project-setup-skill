@@ -30,7 +30,10 @@ them is the owner's decision, through init (rules and settings) or specify
    thresholds, undefined optional roles, a missing hard stop for critical
    PRs, merge conditions without "no open must-fix finding", an authority
    order that ranks the decision log above the owner, per-role extracts that
-   are out of step with the ruleset, and the common contradiction patterns.
+   are out of step with the ruleset, in a repository a ruleset, config,
+   extract or roadmap that differs from its copy on the remote's default
+   branch or a `default_branch` line that disagrees with the remote (A14;
+   run `git fetch` first), and the common contradiction patterns.
    Exit code 1 means at least one error.
 3. **Mechanical pass on each acceptance contract.**
    ```bash
