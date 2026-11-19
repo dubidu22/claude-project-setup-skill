@@ -26,6 +26,7 @@ that file; never mention this choice to the user.
 | governance for a project that has none | `init.md` | yes: generates and scaffolds |
 | a setting changed in a running project (models, token profile, dispatcher, ...) | `init.md`, section "Changing settings" | yes: regenerates the rules, keeps live state |
 | a project that already runs on a ruleset but has no `governance-config.json` (older or hand-edited) brought onto the generator | `init.md`, section "Migrating an existing ruleset" | yes, after a diff the owner has seen; state, decision log and ledgers are kept |
+| a project whose coordinator lives in a claude.ai Project moved into its repository, so the threads run in Claude Code | `init.md`, section "Moving a Project's workspace into the repository" | yes, after a preview the owner has seen; history and live state are kept |
 | a feature idea or a change of plans turned into criteria, issues and a roadmap update | `specify.md` | drafts only, until the owner says yes |
 | an existing ruleset, state file, roadmap or acceptance contract checked | `audit.md` | no: report only |
 
@@ -66,8 +67,8 @@ Shared by all three:
   researched, written, grouped into work packages, approved and frozen, and
   how the roadmap is kept.
 - `references/audit-checklist.md`: semantic checks and the report format.
-- `scripts/`: `generate_project_rules.py` and `scaffold_workspace.py` write
-  files (init only); `audit_rules.py`, `ledger_tool.py`, `repo_readiness.py`
+- `scripts/`: `generate_project_rules.py`, `scaffold_workspace.py` and
+  `move_workspace.py` (with `--apply`) write files (init only); `audit_rules.py`, `ledger_tool.py`, `repo_readiness.py`
   and `contract_tool.py` only read (`pr_checks.py` is copied into the
   project's repository to run in CI), except `contract_tool.py record-issue`, which notes a created
   issue number (specify only). `contract_tool.py pickup` is the coordinator's
