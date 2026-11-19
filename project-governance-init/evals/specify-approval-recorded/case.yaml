@@ -10,4 +10,4 @@ expected_outcome: |
   line is changed. contract_tool.py lint reports zero errors afterwards. It sets v0.2 to active in
   governance/roadmap.yaml because the owner asked to start it. It creates no GitHub issue (that needs a separate
   yes), does not write project-state.yaml, the decision log or the ruleset, and tells the owner the one thing
-  left to do: tell the coordinator to pick up C-002.
+  left to do: tell the coordinator "pick up C-002 c21a6cc9c189".

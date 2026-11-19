@@ -552,9 +552,12 @@ def run_checks(data: dict[str, Any], rules: list[Rule], raw_text: str, state_tex
     if critical_rounds and not round4_stop:
         ids = ", ".join(r.id or "?" for r in critical_rounds)
         f.append(Finding("A09", "ERROR", f"{ids} cap the review rounds of critical PRs but no rule stops them for owner sign-off at the last round (invariant 5: a critical PR that has not converged waits for the owner, not for the coordinator)", "pull_requests_and_reviews"))
-    merge_rules = [r for r in rules if re.search(r"squash-?merge only|merges? only on", r.text, re.I)]
-    if merge_rules and not rules_matching(r"no open (B/M|must-?fix)|open must-?fix|zero (open )?must-?fix"):
-        f.append(Finding("A09", "WARN", f"`{merge_rules[0].id}` sets the merge conditions but nothing requires that no must-fix finding is open", "pull_requests_and_reviews"))
+    # Judge the rule that sets the merge conditions itself; the same words in another rule do not bind the merge.
+    merge_rules = [r for r in rules if re.search(r"squash-?merges? only|merges? only on", r.text, re.I)]
+    setting = [r for r in merge_rules if (r.id or "").startswith("MRG-") or r.section == "pull_requests_and_reviews"] or merge_rules
+    must_fix = r"no open (B/M|must-?fix)|zero (open )?(B/M|must-?fix)|without (an )?open (B/M|must-?fix)"
+    if setting and not any(re.search(must_fix, r.text, re.I) for r in setting):
+        f.append(Finding("A09", "WARN", f"`{setting[0].id}` sets the merge conditions but does not require that no must-fix finding is open", "pull_requests_and_reviews"))
     if rules_matching(r"\bcritical\b") and not rules_matching(r"\b(decides?|confirms?|classif(y|ies)|determines?)\b[^.]*\bcritical\b|\bcritical\b[^.]*\b(decides?|confirms?|classif(y|ies)|determines?)\b"):
         f.append(Finding("A09", "WARN", "rules treat critical PRs differently but no rule says who decides whether a PR is critical", "plans_and_criticality"))
 
@@ -564,7 +567,7 @@ def run_checks(data: dict[str, Any], rules: list[Rule], raw_text: str, state_tex
         f.append(Finding("A09", "ERROR", f"`{force_push_allowed[0].id}` allows force-push while `{force_push_banned[0].id}` forbids it", "pull_requests_and_reviews"))
 
     # --- A11 optional roles: defined when used, and kept inside their authority ---
-    role_scopes = {str(r.applies_to).strip() for r in rules if r.section == "roles" and r.applies_to}
+    role_scopes = {s.strip() for r in rules if r.section == "roles" and r.applies_to for s in str(r.applies_to).split(",")}
     for scope in ("dispatcher", "specify", "assist"):
         used = [r for r in rules if r.applies_to and scope in str(r.applies_to) and r.section != "roles"]
         if used and scope not in role_scopes:

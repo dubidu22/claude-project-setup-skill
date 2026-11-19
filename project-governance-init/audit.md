@@ -40,8 +40,9 @@ them is the owner's decision, through init (rules and settings) or specify
    the ruleset next to `plans/`. It finds untestable or compound criteria,
    missing verify steps, unsourced research, uncovered categories, an approval
    that is not the owner's or whose message does not name the hash, a contract
-   that differs from its pickup record (edited after approval, even if its
-   hash was recomputed), a work-package label the ruleset does not have, and
+   that differs from its pickup record or, in a repo, from the copy on the
+   default branch (edited after approval, even if its hash was recomputed;
+   run `git fetch` first so the comparison is current), a work-package label the ruleset does not have, and
    criteria outside any work package. Then the roadmap against the contracts
    and, if there is a ledger, its entries:
    ```bash

@@ -58,7 +58,7 @@ Check each pair explicitly and quote both rule ids in the finding.
 | Dispatcher authority | `roles`, `pull_requests_and_reviews` | the dispatcher may grant merge go for critical PRs, approve plans or decide scope; a rule still tells the coordinator to do what `ROLE-11` gave the dispatcher (two owners for one duty); `ROLE-04` relays fix lists while `THR-04` routes them through round reports |
 | Force-push / branch freeze | `pull_requests_and_reviews`, `CLAUDE.md` | repo docs say "always force-push after rebase" while rules say never |
 | Authority order | header `authority`, `project_instructions`, `ROLE-01` | the decision log ranks above the owner's messages although `ROLE-01` lets the owner override any entry; the ruleset or approved contracts are missing from the list; two sources both claim to win; decision log not above repo `CLAUDE.md`; D-entries for owner decisions without the owner's message quoted |
-| One writer per file | `threads_and_watchdog`, `roles`, templates | two roles write the same ledger, the state file or the roadmap (for example an assist thread editing `owner_open_steps`, or a dispatcher "keeping the ledgers current"); in a repo, no rule names the branch working files are committed on |
+| One writer per file | `threads_and_watchdog`, `roles`, templates | the coordinator and the KB thread both write the decision log, with no pending-decisions file between them; two roles write the same ledger, the state file or the roadmap (for example an assist thread editing `owner_open_steps`, or a dispatcher "keeping the ledgers current"); in a repo, no rule names the branch working files are committed on |
 | Observable triggers | `threads_and_watchdog` | a rule depends on something a thread cannot see: its own compression count as the only replacement trigger, its context size in tokens, a timer nobody fires, `/compact` in a claude.ai Project, a model that is "set" with no rule saying by whom |
 
 ## 4. Token efficiency
@@ -140,7 +140,9 @@ For each `plans/contract-*.yaml`, after `contract_tool.py lint`:
 - Do plans and PR bodies cite criterion ids with proof (`PLAN-04`), and did a
   review confirm them (`REV-03`)?
 - Was the contract approved by the owner's own message, and does that message
-  name the hash? Is there a pickup record (`approved_contracts` in the state
+  name the hash? Did the owner's pick-up message name it too? In a repo,
+  does the working copy equal the copy on the default branch (lint C039;
+  `git fetch` first)? Is there a pickup record (`approved_contracts` in the state
   file, a D-entry in the decision log) with the same hash? A contract whose
   three hashes agree but whose text differs from what the PRs were reviewed
   against is the case to look for by reading, since a thread that can write

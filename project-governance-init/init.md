@@ -165,6 +165,8 @@ rule exists to get real decisions, not to block when there is nobody to decide.
      makes contract approval and ruleset changes the owner's own review), and
      copy the labeler files if `critical_paths` is set;
    - quote their go for the setup into D-001 of the decision log;
+   - when a contract is approved, tell the coordinator "pick up <id> <hash>"
+     with the hash they approved;
    - optional: a scheduled task that sends the dispatcher (or the
      coordinator) "watchdog check", if stalled threads should be noticed
      while nobody is active.

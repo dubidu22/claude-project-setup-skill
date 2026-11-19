@@ -14,6 +14,7 @@ Usage:
     python3 contract_tool.py brief contract.yaml [--ids AC-3,AC-4]   # compact view for worker threads
     python3 contract_tool.py brief contract.yaml --owner  # everything the owner approves: scope, every criterion and verify step, hash
     python3 contract_tool.py hash contract.yaml           # value for approval.hash
+    python3 contract_tool.py pickup contract.yaml --hash <hash the owner named> --decision D-12   # coordinator: check, then print the line to record
     python3 contract_tool.py issues contract.yaml [--json] [--preflight]   # issue drafts, one per work package (+ backlog items)
     python3 contract_tool.py record-issue contract.yaml <package key> <issue number>   # the only command that writes a file
     python3 contract_tool.py roadmap roadmap.yaml [--plans DIR]   # check the roadmap against the contracts
@@ -27,6 +28,12 @@ coordinator records "<id> v<version> D-<n> hash <hash>" in project-state.yaml
 contract with that record. They look for `../project-state.yaml`,
 `../kb/decision-log.md` and `../claude-project-rules.yaml` relative to the
 contract's folder; --state, --decision-log and --rules name other places.
+
+In a git repository whose ruleset names a `default_branch`, an approved contract
+is also compared with its copy on that branch (`origin/<branch>`, else the local
+branch): that copy is the one the owner's pull-request review let in, and the
+branch threads work on is not protected. Run `git fetch` first; --no-git skips
+the comparison.
 
 lint exit code: 0 clean or only WARN/INFO, 1 when any ERROR (or WARN with
 --strict), 2 when the file cannot be read or parsed.
@@ -45,6 +52,7 @@ import datetime
 import hashlib
 import json
 import re
+import subprocess
 import sys
 from dataclasses import dataclass, asdict
 from pathlib import Path
@@ -436,17 +444,86 @@ def workspace_files(contract: Path, state: Path | None, decision_log: Path | Non
     return texts, (rules_path if rules_path.is_file() else None)
 
 
-def ruleset_labels(rules_path: Path | None) -> tuple[list[str] | None, str]:
-    """file_ownership_labels and repository of the ruleset, or (None, '') when it cannot be read."""
+def ruleset_labels(rules_path: Path | None) -> tuple[list[str] | None, str, str]:
+    """file_ownership_labels, repository and default_branch of the ruleset; (None, '', '') when it cannot be read."""
     if rules_path is None:
-        return None, ""
+        return None, "", ""
     try:
         data = load(rules_path)
     except (OSError, ValueError):
-        return None, ""
+        return None, "", ""
     prof = data.get("project_profile") if isinstance(data.get("project_profile"), dict) else {}
     labels = prof.get("file_ownership_labels")
-    return ([s(x) for x in labels] if isinstance(labels, list) else None), s(data.get("repository"))
+    return ([s(x) for x in labels] if isinstance(labels, list) else None), s(data.get("repository")), s(prof.get("default_branch"))
+
+
+def _git(cwd: Path, *args: str) -> tuple[int, str]:
+    try:
+        p = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return 1, ""
+    return p.returncode, p.stdout
+
+
+def reviewed_copy(contract: Path, branch: str) -> tuple[str, dict[str, Any] | None, str]:
+    """The contract as it stands on the default branch.
+
+    Returns (state, data, ref): state is 'no-git' (not a repository, or git missing), 'no-branch' (the branch
+    is not known here), 'absent' (the file is not on that branch), 'unreadable', or 'found'."""
+    folder = contract.resolve().parent
+    code, top = _git(folder, "rev-parse", "--show-toplevel")
+    if code != 0 or not top.strip():
+        return "no-git", None, ""
+    try:
+        rel = contract.resolve().relative_to(Path(top.strip()).resolve()).as_posix()
+    except ValueError:
+        return "no-git", None, ""
+    for ref in (f"origin/{branch}", branch):
+        if _git(folder, "rev-parse", "--verify", "--quiet", ref + "^{commit}")[0] != 0:
+            continue
+        code, text = _git(folder, "show", f"{ref}:{rel}")
+        if code != 0:
+            return "absent", None, ref
+        try:
+            if contract.suffix.lower() == ".json":
+                data = json.loads(text)
+            else:
+                try:
+                    import yaml  # type: ignore
+                except ImportError:
+                    data = mini_yaml(text)
+                else:
+                    data = yaml.safe_load(text)
+        except Exception:  # noqa: BLE001
+            return "unreadable", None, ref
+        return ("found", data, ref) if isinstance(data, dict) else ("unreadable", None, ref)
+    return "no-branch", None, ""
+
+
+def git_findings(contract: Path, data: dict[str, Any], branch: str) -> list[Finding]:
+    """Compare an approved contract with the copy the owner reviewed on the default branch (C039)."""
+    if s((data.get("contract") or {}).get("status")).lower() != "approved" or not branch:
+        return []
+    state, base, ref = reviewed_copy(contract, branch)
+    if state == "no-git":
+        return []
+    if state == "no-branch":
+        return [Finding("C039", "WARN", f"branch '{branch}' is not known in this checkout, so the contract cannot be compared with the copy the owner reviewed; run `git fetch`", "approval")]
+    if state == "absent":
+        return [Finding("C039", "ERROR", f"approved, but the contract is not on {ref}: the pull request that carries the owner's approval has not been merged (or this checkout is stale: `git fetch`). No work starts from it", "approval")]
+    if state == "unreadable" or base is None:
+        return [Finding("C039", "ERROR", f"the copy of this contract on {ref} cannot be read", "approval")]
+    mine, theirs = contract_hash(data), contract_hash(base)
+    if mine != theirs:
+        return [Finding("C039", "ERROR", f"the contract differs from the copy on {ref}, which is the one the owner reviewed (here {mine}, there {theirs}); it was edited on an unprotected branch. Restore it from {ref}", "approval")]
+    if s((base.get("contract") or {}).get("status")).lower() != "approved":
+        return [Finding("C039", "ERROR", f"the contract is approved here but not on {ref}; the approval was not part of what the owner reviewed", "approval")]
+    a = data.get("approval") if isinstance(data.get("approval"), dict) else {}
+    b = base.get("approval") if isinstance(base.get("approval"), dict) else {}
+    changed = [k for k in ("by", "hash", "owner_message") if s(a.get(k)) != s(b.get(k))]
+    if changed:
+        return [Finding("C039", "ERROR", f"approval.{', approval.'.join(changed)} differ from the copy on {ref}; restore the file from {ref}", "approval")]
+    return []
 
 
 # ----------------------------------------------------------------------------
@@ -995,6 +1072,11 @@ def main() -> int:
     p_rec.add_argument("key", help="work package key, or cut-<n> for a backlog item, as shown by `issues`")
     p_rec.add_argument("number", type=int, help="the issue number GitHub returned")
     p_rec.add_argument("--record", type=Path)
+    p_rec.add_argument("--replace", action="store_true", help="overwrite a different issue number already recorded for this package")
+    p_pick = sub.add_parser("pickup", help="coordinator: check an approved contract against the hash the owner named, then print the line to record")
+    p_pick.add_argument("contract", type=Path)
+    p_pick.add_argument("--hash", required=True, dest="owner_hash", help="the hash in the owner's pick-up message")
+    p_pick.add_argument("--decision", required=True, help="the D-number this pickup gets, e.g. D-12")
     p_road = sub.add_parser("roadmap", help="check roadmap.yaml, optionally against the contracts in a plans directory")
     p_road.add_argument("contract", type=Path, metavar="roadmap")
     p_road.add_argument("--plans", type=Path)
@@ -1004,7 +1086,10 @@ def main() -> int:
     p_goal.add_argument("--ids", help="comma-separated criterion ids (default: all must criteria + core probe)")
     p_goal.add_argument("--turns", type=int, default=30)
     p_goal.add_argument("--allow-draft", action="store_true")
-    for sp in (p_lint, p_goal, p_iss):
+    for sp in (p_lint, p_goal, p_pick):
+        sp.add_argument("--no-git", action="store_true", help="do not compare with the copy on the default branch")
+        sp.add_argument("--default-branch", help="branch holding the reviewed copy (default: project_profile.default_branch of the ruleset)")
+    for sp in (p_lint, p_goal, p_iss, p_pick):
         sp.add_argument("--state", type=Path, help="project-state.yaml holding the pickup records (default: ../project-state.yaml)")
         sp.add_argument("--decision-log", type=Path, help="decision log holding the pickup records (default: ../kb/decision-log.md)")
         sp.add_argument("--rules", type=Path, help="ruleset to check work-package labels against (default: ../claude-project-rules.yaml)")
@@ -1044,6 +1129,12 @@ def main() -> int:
         if args.number < 1:
             print("error: the issue number must be positive", file=sys.stderr)
             return 1
+        have = rec["packages"].get(args.key)
+        if isinstance(have, dict) and have.get("issue") not in (None, args.number) and not args.replace:
+            print(f"error: {args.key} already has issue #{have.get('issue')} on record (made for v{have.get('version')}). "
+                  f"If #{args.number} is a second issue for the same package, one of them is a duplicate: tell the owner. "
+                  "To change the record on purpose, add --replace", file=sys.stderr)
+            return 1
         meta = data.get("contract") or {}
         rec["contract"] = s(meta.get("id"))
         rec["packages"][args.key] = {"issue": args.number, "version": meta.get("version"), "title": drafts[args.key]["title"]}
@@ -1053,7 +1144,9 @@ def main() -> int:
 
     record_texts, rules_path = workspace_files(args.contract, getattr(args, "state", None),
                                                getattr(args, "decision_log", None), getattr(args, "rules", None))
-    labels, repo = ruleset_labels(rules_path)
+    labels, repo, default_branch = ruleset_labels(rules_path)
+    branch = getattr(args, "default_branch", None) or default_branch
+    use_git = not getattr(args, "no_git", True)
 
     if args.cmd == "issues":
         errs = [x for x in lint(data, labels=labels) if x.severity == "ERROR"]
@@ -1079,8 +1172,29 @@ def main() -> int:
         return 0
 
     findings = lint(data, getattr(args, "max_package_criteria", MAX_PACKAGE_CRITERIA),
-                    record_texts=record_texts, labels=labels)
+                    record_texts=None if args.cmd == "pickup" else record_texts, labels=labels)
+    if use_git:
+        findings += git_findings(args.contract, data, branch)
     errors = [x for x in findings if x.severity == "ERROR"]
+
+    if args.cmd == "pickup":
+        meta = data.get("contract") or {}
+        cid, ver, current = s(meta.get("id")), s(meta.get("version")), contract_hash(data)
+        problems = [f"{x.code} {x.message}" for x in errors]
+        if s(meta.get("status")).lower() != "approved":
+            problems.append(f"status is '{s(meta.get('status'))}', not approved")
+        if not DECISION_RE.match(args.decision):
+            problems.append(f"--decision must look like D-12, got '{args.decision}'")
+        if args.owner_hash.strip() != current:
+            problems.append(f"the owner named hash {args.owner_hash.strip()} but this contract's content has hash {current}: "
+                            "it is not the contract the owner approved. Do not record it; tell the owner")
+        for source, d, h in find_records(cid, ver, record_texts):
+            problems.append(f"{cid} v{ver} is already recorded in {source} ({d or 'no D-number'} hash {h})")
+        if problems:
+            print(f"error: do not pick up {cid} v{ver}:\n" + "\n".join(f"  - {p}" for p in problems), file=sys.stderr)
+            return 1
+        print(f"{cid} v{ver} {args.decision} hash {current}")
+        return 0
 
     if args.cmd == "lint":
         if args.json:

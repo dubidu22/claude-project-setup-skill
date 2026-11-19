@@ -296,3 +296,141 @@ def test_planted_contract_still_fails_for_the_planted_reasons():
                          ("C017", "reliably"), ("C020", "manual"), ("C022", "AC-7"), ("C023", "not 'owner'"),
                          ("C024", "AC-8"), ("C027", "approval.hash is empty"), ("C028", "version 2"), ("C037", "D-number")]:
         assert has(r, code, needle), (code, needle)
+
+
+# ---- N1: in a repo, the copy on the default branch is the one that counts --------------
+
+def git(cwd, *args):
+    r = subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args], cwd=cwd, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    return r.stdout
+
+
+@pytest.fixture
+def repo(ws):
+    """The fixture workspace as a git repo: everything on main, threads working on the governance branch."""
+    root = ws.parent
+    git(root, "init", "-q", "-b", "main")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "approved contract, reviewed by the owner")
+    git(root, "checkout", "-q", "-b", "governance")
+    return ws
+
+
+def test_clean_contract_on_the_governance_branch_passes(repo):
+    assert findings(lint(repo)) == []
+    assert run("contract_tool.py", "goal", repo / CONTRACT, "--ids", "AC-1").returncode == 0
+
+
+def test_rewriting_contract_message_and_record_together_fails_in_a_repo(repo):
+    c = repo / CONTRACT
+    old = ct.contract_hash(ct.load(c))
+    edit(c, "stores 120 transactions", "stores 12 transactions")
+    new = run("contract_tool.py", "hash", c).stdout.strip()
+    for f in (c, repo / "project-state.yaml"):
+        f.write_text(f.read_text().replace(old, new))   # hash, quoted owner message and pickup record all rewritten
+    git(repo.parent, "commit", "-qam", "quiet edit on the unprotected branch")
+    # without git this is the case the first review left open: nothing to compare with
+    assert findings(lint(repo, "--no-git")) == []
+    r = lint(repo)
+    assert r.returncode == 1 and has(r, "C039", "differs from the copy on main", "ERROR")
+    assert has(lint(repo, no_yaml=True), "C039", "differs from the copy on main")
+    goal = run("contract_tool.py", "goal", c)
+    assert goal.returncode == 1 and "/goal" not in goal.stdout
+
+
+def test_approval_fields_must_match_the_reviewed_copy(repo):
+    c = repo / CONTRACT
+    h = ct.contract_hash(ct.load(c))
+    edit(c, f'owner_message: "2026-11-11: approved {h}"', f'owner_message: "2026-11-12: yes, approved {h}"')
+    assert has(lint(repo), "C039", "approval.owner_message differ", "ERROR")
+
+
+def test_contract_approved_only_on_the_working_branch_is_refused(repo):
+    v2 = repo / "plans" / "contract-001-csv-import-v2.yaml"
+    text = (repo / CONTRACT).read_text().replace("version: 1", "version: 2").replace("changes: []", 'changes: ["v2: same"]')
+    v2.write_text(text)
+    r = run("contract_tool.py", "lint", v2, "--json")
+    assert has(r, "C039", "is not on main", "ERROR")
+    # a draft is not compared: drafts live on a pull-request branch until the owner approves
+    v2.write_text(text.replace("status: approved", "status: draft"))
+    assert not has(run("contract_tool.py", "lint", v2, "--json"), "C039")
+
+
+def test_origin_is_preferred_and_a_missing_branch_is_a_warning(repo):
+    root = repo.parent
+    bare = root.parent / "origin.git"
+    git(root, "clone", "-q", "--bare", ".", str(bare))
+    git(root, "remote", "add", "origin", str(bare))
+    git(root, "fetch", "-q", "origin")
+    git(root, "checkout", "-q", "main")
+    edit(repo / CONTRACT, "stores 120 transactions", "stores 12 transactions")
+    git(root, "commit", "-qam", "local main moved without review")
+    git(root, "checkout", "-q", "governance")
+    git(root, "merge", "-q", "main")
+    assert has(lint(repo), "C039", "differs from the copy on origin/main", "ERROR")
+    assert has(lint(repo, "--default-branch", "trunk"), "C039", "not known in this checkout", "WARN")
+
+
+def test_outside_git_the_comparison_is_skipped(ws):
+    assert not has(lint(ws), "C039")
+
+
+# ---- N4: pickup names the hash the owner approved ------------------------------------------
+
+def unpick(ws):
+    h = ct.contract_hash(ct.load(ws / CONTRACT))
+    edit(ws / "project-state.yaml", f'approved_contracts: ["C-001 v1 D-004 hash {h}"]', "approved_contracts: []")
+    return h
+
+
+def test_pickup_prints_the_line_only_for_the_hash_the_owner_named(ws):
+    c = ws / CONTRACT
+    h = unpick(ws)
+    ok = run("contract_tool.py", "pickup", c, "--hash", h, "--decision", "D-12")
+    assert ok.returncode == 0 and ok.stdout.strip() == f"C-001 v1 D-12 hash {h}"
+    assert run("contract_tool.py", "pickup", c, "--hash", h, "--decision", "twelve").returncode == 1
+    # between approval and pickup: a criterion, the hash and the quoted message are rewritten; lint has no record to compare with
+    edit(c, "stores 120 transactions", "stores 12 transactions")
+    new = run("contract_tool.py", "hash", c).stdout.strip()
+    c.write_text(c.read_text().replace(h, new))
+    assert not errors(lint(ws))
+    bad = run("contract_tool.py", "pickup", c, "--hash", h, "--decision", "D-12")
+    assert bad.returncode == 1 and bad.stdout == "" and "not the contract the owner approved" in bad.stderr
+
+
+def test_pickup_refuses_drafts_lint_errors_and_a_second_pickup(ws):
+    c = ws / CONTRACT
+    h = ct.contract_hash(ct.load(c))
+    again = run("contract_tool.py", "pickup", c, "--hash", h, "--decision", "D-13")
+    assert again.returncode == 1 and "already recorded" in again.stderr
+    unpick(ws)
+    edit(c, "status: approved", "status: draft")
+    assert "not approved" in run("contract_tool.py", "pickup", c, "--hash", h, "--decision", "D-13").stderr
+    edit(c, "status: draft", "status: approved")
+    edit(c, "by: owner", "by: coordinator")
+    assert "C023" in run("contract_tool.py", "pickup", c, "--hash", h, "--decision", "D-13").stderr
+
+
+def test_pickup_in_a_repo_checks_the_reviewed_copy(repo):
+    c = repo / CONTRACT
+    old = unpick(repo)
+    edit(c, "stores 120 transactions", "stores 12 transactions")
+    new = run("contract_tool.py", "hash", c).stdout.strip()
+    c.write_text(c.read_text().replace(old, new))
+    # even if the owner's pick-up message were forged to name the new hash, the reviewed copy says otherwise
+    r = run("contract_tool.py", "pickup", c, "--hash", new, "--decision", "D-12")
+    assert r.returncode == 1 and "C039" in r.stderr
+
+
+# ---- N6: record-issue does not overwrite silently --------------------------------------------
+
+def test_record_issue_refuses_a_second_number_unless_replace(ws):
+    c = ws / CONTRACT
+    assert run("contract_tool.py", "record-issue", c, "import", "41").returncode == 0
+    assert run("contract_tool.py", "record-issue", c, "import", "41").returncode == 0  # the same number again is fine
+    clash = run("contract_tool.py", "record-issue", c, "import", "77")
+    assert clash.returncode == 1 and "already has issue #41" in clash.stderr and "duplicate" in clash.stderr
+    assert json.loads((ws / "plans" / "issues-C-001.json").read_text())["packages"]["import"]["issue"] == 41
+    assert run("contract_tool.py", "record-issue", c, "import", "77", "--replace").returncode == 0
+    assert json.loads((ws / "plans" / "issues-C-001.json").read_text())["packages"]["import"]["issue"] == 77

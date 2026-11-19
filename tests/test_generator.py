@@ -272,11 +272,14 @@ def test_criticality_merge_go_and_escalation_rules(w):
 def test_environment_decides_branch_and_compaction_rules(w):
     w.generate()  # /mnt/project-files
     assert yaml.safe_load(w.rules_text())["project_profile"]["environment"] == "claude_ai_project"
-    assert "THR-11" not in w.rule_ids() and "THR-13" not in w.rule_ids() and "/compact" not in w.rules_text()
+    assert not {"THR-11", "THR-13", "THR-14"} & set(w.rule_ids()) and "/compact" not in w.rules_text()
+    assert "worktree" not in w.rules_text()
     w.generate(None, "workspace_root=./governance")
     prof = yaml.safe_load(w.rules_text())["project_profile"]
     assert prof["environment"] == "claude_code" and prof["governance_branch"] == "governance"
-    assert "committed on branch governance" in w.rule("THR-13") and "pull request only" in w.rule("THR-13")
+    assert "live on branch governance" in w.rule("THR-13") and "git worktree add ../<repo>-governance governance" in w.rule("THR-13")
+    assert "pull request only" in w.rule("THR-14") and "main holds the copy that counts" in w.rule("THR-14")
+    assert "decision-log PR" in w.rule("ROLE-08") and "worktree command of THR-13" in w.rule("THR-10")
     assert "/compact" in w.rule("THR-11") and "tokens" not in w.rule("THR-11")
     w.generate(None, "coordinator_compact_every_batches=0")
     assert "THR-11" not in w.rule_ids()
@@ -287,6 +290,10 @@ def test_rules_rest_on_what_files_show(w):
     assert "replace_after_prs" in w.rule("THR-02") and "counted from its ledger entries" in w.rule("THR-02")
     assert "take the time from a tool" in w.rule("THR-03") and "scheduled task" in w.rule("THR-03")
     assert "starter block" in w.rule("THR-10") and "ask the owner to open the chat" in w.rule("THR-10")
+    assert "kb/pending-decisions.md" in w.rule("THR-06") and "decision log" not in w.rule("THR-06")
+    assert "pending-decisions.md" in w.rule("ROLE-08") and "PR" not in w.rule("ROLE-08")  # a claude.ai Project has no PRs
+    assert "only writer" in w.rule("ROLE-08") and "without code review" in w.rule("ROLE-08")
+    assert "owner's message naming its hash" in w.rule("PLAN-03") and "contract_tool.py pickup" in w.rule("PLAN-03")
     assert "Every file has one writer" in w.rule("THR-04")
     assert "tells the coordinator" in w.rule("ROLE-12") and "project-state.yaml" not in w.rule("ROLE-12")
     assert "writes none" in w.rule("ROLE-11")
@@ -317,11 +324,13 @@ def test_extracts_hold_exactly_the_rules_that_bind_the_role(w):
     w.generate(None, "workspace_root=./governance")
     full = yaml.safe_load(w.rules_text())
     all_rules = {r["id"]: r for sec in full.values() if isinstance(sec, list) for r in sec if isinstance(r, dict) and "id" in r}
-    roles = {r["applies_to"] for r in all_rules.values()} - {"all", "owner"}
+    roles = {s for r in all_rules.values() for s in r["applies_to"].split(",")} - {"all", "owner"}
     assert {p.stem for p in (w.ws / "rules").glob("*.yaml")} == roles
+    assert all_rules["THR-10"]["applies_to"] == "coordinator,dispatcher"  # both start threads
     for role in roles:
         e = yaml.safe_load((w.ws / "rules" / f"{role}.yaml").read_text())
-        want = {rid for rid, r in all_rules.items() if r["applies_to"] in (role, "all")}
+        want = {rid for rid, r in all_rules.items() if {role, "all"} & set(r["applies_to"].split(","))}
+        assert ("THR-10" in want) == (role in ("coordinator", "dispatcher"))
         assert {r["id"] for r in e["rules"]} == want
         assert all(all_rules[r["id"]]["rule"] == r["rule"] for r in e["rules"])
         assert e["extract_for"] == role and e["execution_profile"] == full["execution_profile"]

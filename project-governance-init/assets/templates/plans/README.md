@@ -44,6 +44,16 @@ with reason). Each PR and each round also gets a ledger entry
 (`../ledger/README.md`).
 <!-- if:in_repo -->
 
-These files are committed on branch `{{governance_branch}}` by their writer:
-pull with rebase, commit, push; never force-push (`THR-13`).
+These files are committed on branch `{{governance_branch}}` by their writer,
+never on a product branch and never by force-push (`THR-13`). A thread that
+works on a product branch keeps a second worktree for them:
+
+    git worktree add ../<repo>-{{governance_branch}} {{governance_branch}}
+<!-- endif -->
+<!-- if:contracts_in_repo -->
+
+Contracts are the exception: they change on `{{default_branch}}` by pull
+request only, and the copy there is the one that counts (`THR-14`).
+`contract_tool.py` compares an approved contract with `origin/{{default_branch}}`
+(run `git fetch` first) and reports a copy that differs.
 <!-- endif -->
