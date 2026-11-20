@@ -121,7 +121,10 @@ def test_apply_moves_keeps_history_and_regenerates(project, repo):
     assert git(repo, "rev-parse", "HEAD") == head
     assert git(repo, "status", "--porcelain").strip() == "?? governance/"
     assert git(repo, "branch", "--list").split() == ["*", "main"]
+    snippet = (target / "claude-md-snippet.md").read_text()
+    assert "./governance/rules/<role>.yaml" in snippet and "ask the owner which one before you change any file" in snippet
     for phrase in ("Copied", "Audit: 0 error(s)", "A14 is expected now", "open a pull request into main", "The owner applies",
+                   "claude-md-snippet.md into CLAUDE.md",
                    "Start every thread fresh in Claude Code", "revokes them"):
         assert phrase in r.stdout, phrase
 
@@ -169,23 +172,14 @@ def refused(r, word):
     assert r.returncode == 1 and "Refused, nothing was written" in r.stdout and word in r.stdout, r.stdout
 
 
-def test_refuses_a_folder_that_is_not_a_generated_workspace(project, repo, tmp_path):
-    (project / "governance-config.json").unlink()
-    refused(move(project, repo, "--apply"), "Migrating an existing ruleset")
+def test_refuses_a_folder_without_a_ruleset(project, repo, tmp_path):
+    (project / "claude-project-rules.yaml").unlink()
+    refused(move(project, repo, "--apply"), "there is no governance to move")
     empty = tmp_path / "empty"
     empty.mkdir()
-    refused(move(empty, repo), "run init in the repository instead")
+    (empty / "notes.md").write_text("hello\n")
+    refused(move(empty, repo), "run init")
     refused(move(tmp_path / "nowhere", repo), "is not a folder")
-    assert not (repo / "governance").exists()
-
-
-def test_refuses_a_flat_download(project, repo, tmp_path):
-    flat = tmp_path / "flat"
-    flat.mkdir()
-    for p in project.rglob("*"):
-        if p.is_file():
-            (flat / p.name).write_bytes(p.read_bytes())
-    refused(move(flat, repo, "--apply"), "have to be sorted into plans/, kb/, ledger/ and rules/ first")
     assert not (repo / "governance").exists()
 
 
@@ -259,6 +253,196 @@ def test_skill_routes_to_the_move_section():
     assert 'section "Moving a Project\'s workspace into the repository"' in skill and "move_workspace.py" in skill
     init = (SKILL / "init.md").read_text()
     section = init.split("## Moving a Project's workspace into the repository")[1].split("\n## ")[0]
-    for phrase in ("move_workspace.py --from", "--apply", "Stop and wait for the owner's yes", "Do not ask for tokens",
-                   "The\n     chats in the Project stop", "A14", "runs no git command"):
+    for phrase in ("move_workspace.py --from", "move_workspace.py --in-place", "--apply", "Stop and wait for the owner's yes",
+                   "Never ask for tokens", "The\n     chats in the Project stop", "A14", "changes nothing in git", "unsorted/",
+                   "claude-md-snippet.md", "--instructions <file>", "not a move: run the normal init"):
         assert phrase in section, phrase
+
+
+# ---- a flat download ------------------------------------------------------------------------------------
+
+def flatten(project: Path, flat: Path) -> None:
+    flat.mkdir()
+    for p in sorted(project.rglob("*")):
+        if p.is_file() and not (flat / p.name).exists():  # README.md exists three times; a flat list keeps one
+            (flat / p.name).write_bytes(p.read_bytes())
+
+
+def test_a_flat_download_is_placed_by_name(project, repo, tmp_path):
+    (project / "plans" / "contract-001-import.yaml").write_text("id: contract-001\n")
+    (project / "plans" / "review-pr12-round1.md").write_text("# round 1\n")
+    (project / "ledger" / "overrides").mkdir()
+    (project / "kb" / "features").mkdir(exist_ok=True)
+    (project / "kb" / "features" / "import.md").write_text("# Import\n")
+    before = tree(project)
+    flat = tmp_path / "flat"
+    flatten(project, flat)
+    (flat / "old-ledger-table.md").write_text("| pr |\n")
+    r = move(flat, repo)
+    assert r.returncode == 0, r.stdout
+    assert "from a flat file list" in r.stdout and "pr-12.yaml -> ledger/prs/pr-12.yaml" in r.stdout
+    assert "CANNOT PLACE" in r.stdout and "import.md" in r.stdout and "old-ledger-table.md" in r.stdout
+    assert not (repo / "governance").exists()
+    r = move(flat, repo, "--apply")
+    assert r.returncode == 0, r.stdout
+    after = tree(repo / "governance")
+    for name in ("project-state.yaml", "roadmap.yaml", "kb/decision-log.md", "kb/pending-decisions.md", "plans/plan-001-app_cli-import.md",
+                 "plans/contract-001-import.yaml", "plans/review-pr12-round1.md", "ledger/prs/pr-12.yaml", "ledger/rounds/pr12-round1.yaml"):
+        assert after[name] == before[name], name
+    assert after["unsorted/import.md"] == b"# Import\n" and after["unsorted/old-ledger-table.md"] == b"| pr |\n"
+    # generated files are written fresh, for the repository
+    assert "/mnt/project-files" not in (repo / "governance" / "rules" / "review.yaml").read_text()
+    assert (repo / "governance" / "tools" / "ledger_tool.py").is_file() and (repo / "governance" / "plans" / "README.md").is_file()
+    assert "In ./governance/unsorted/ for the owner to sort (2): import.md, old-ledger-table.md" in r.stdout
+    assert run("ledger_tool.py", "check", "--ledger", repo / "governance" / "ledger").returncode == 0
+
+
+def test_flat_ledger_entries_are_told_apart_by_their_keys(tmp_path):
+    import sys
+    sys.path.insert(0, str(SKILL / "scripts"))
+    import move_workspace as m
+
+    def f(name, body):
+        p = tmp_path / name
+        p.write_text(body)
+        return m.place(name.split("__")[-1], p)
+
+    assert f("a__pr-12.yaml", "pr: 12\nopened: 2026-01-31\nthread: impl-1\n") == "ledger/prs/pr-12.yaml"
+    assert f("b__pr-12.yaml", "pr: 12\ndate: 2026-02-03\nby: owner\nhead: 3f9c2ab\nreason: x\n") == "ledger/overrides/pr-12.yaml"
+    assert f("c__pr-12.yaml", "pr: 12\ndate: 2026-02-03\nby: owner\nreason: x\n") == "ledger/reverts/pr-12.yaml"
+    assert f("d__pr-12.yaml", "something: else\n") is None
+    assert f("pr12-round2.yaml", "") == "ledger/rounds/pr12-round2.yaml"
+    assert f("review.yaml", "") == "" and f("README.md", "") == "" and f("contract_tool.py", "") == ""
+    assert f("batch-003.md", "") is None  # a batch file and an audit report share this name: not guessed
+    assert f("decision-log.md", "") == "kb/decision-log.md" and f("issues-contract-001.md", "") == "plans/issues-contract-001.md"
+
+
+def test_flat_download_warns_about_open_prs(project, repo, tmp_path):
+    (project / "ledger" / "prs" / "pr-13.yaml").write_text('pr: 13\nopened: 2026-02-02\nthread: impl-1\nlane: app_cli\nlabels: "lane:cli"\ncritical: no\ncompactions: 0\n')
+    flat = tmp_path / "flat"
+    flatten(project, flat)
+    r = move(flat, repo)
+    assert r.returncode == 0 and "the ledger shows open PRs: #13." in r.stdout
+
+
+# ---- files already in the repository --------------------------------------------------------------------
+
+@pytest.fixture
+def in_repo(project, repo):
+    """The Project's governance files are already committed in the repository."""
+    import shutil
+    shutil.copytree(project, repo / "governance")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "governance files as the Project wrote them")
+    return repo
+
+
+def test_in_place_regenerates_without_copying(in_repo):
+    target = in_repo / "governance"
+    before = tree(target)
+    head = git(in_repo, "rev-parse", "HEAD")
+    r = run("move_workspace.py", "--in-place", "--repo", in_repo)
+    assert r.returncode == 0 and "in place" in r.stdout and "Preview only" in r.stdout and "files to copy" not in r.stdout
+    assert tree(target) == before
+    r = run("move_workspace.py", "--in-place", "--repo", in_repo, "--apply")
+    assert r.returncode == 0, r.stdout
+    after = tree(target)
+    for name in ("project-state.yaml", "kb/decision-log.md", "plans/plan-001-app_cli-import.md", "ledger/prs/pr-12.yaml", "roadmap.yaml"):
+        assert after[name] == before[name], name
+    prof = yaml.safe_load((target / "claude-project-rules.yaml").read_text())["project_profile"]
+    assert prof["environment"] == "claude_code" and prof["workspace_root"] == "./governance"
+    assert "Regenerated the ruleset for ./governance" in r.stdout and "Copied" not in r.stdout
+    assert (target / "github-setup" / "CODEOWNERS").is_file() and (target / "claude-md-snippet.md").is_file()
+    assert git(in_repo, "rev-parse", "HEAD") == head and git(in_repo, "diff", "--cached", "--name-only") == ""  # nothing committed or staged
+
+
+def test_in_place_refuses_uncommitted_changes_and_a_missing_folder(in_repo, repo):
+    (in_repo / "governance" / "project-state.yaml").write_text("changed: yes\n")
+    r = run("move_workspace.py", "--in-place", "--repo", in_repo, "--apply")
+    refused(r, "has uncommitted changes")
+    assert (in_repo / "governance" / "project-state.yaml").read_text() == "changed: yes\n"
+    r = run("move_workspace.py", "--in-place", "--repo", in_repo, "--to", "nowhere")
+    refused(r, "--in-place needs the files to be there already")
+
+
+def test_in_place_failure_says_how_to_undo(in_repo):
+    target = in_repo / "governance"
+    cfg = json.loads((target / "governance-config.json").read_text())
+    cfg["escalate_after_round"] = "soon"
+    (target / "governance-config.json").write_text(json.dumps(cfg))
+    git(in_repo, "commit", "-q", "-am", "a config the generator refuses")
+    r = run("move_workspace.py", "--in-place", "--repo", in_repo, "--apply")
+    assert r.returncode == 1 and "git restore -- governance" in r.stdout and "git clean -fd -- governance" in r.stdout
+    assert target.is_dir()  # in place, nothing is removed
+
+
+def test_from_and_in_place_exclude_each_other(project, repo):
+    assert run("move_workspace.py", "--repo", repo).returncode == 2
+    assert run("move_workspace.py", "--from", project, "--in-place", "--repo", repo).returncode == 2
+    (repo / "governance").mkdir()
+    import shutil
+    shutil.copytree(project, repo / "governance" / "inner")
+    refused(move(repo / "governance" / "inner", repo), "use --in-place")
+
+
+# ---- an older ruleset without a config ------------------------------------------------------------------
+
+def test_a_ruleset_without_config_is_derived_first(project, repo):
+    (project / "governance-config.json").unlink()
+    rules = project / "claude-project-rules.yaml"
+    text = rules.read_text()
+    start = text.index("  - id: META-03")
+    hand = text[:start] + '  - id: HAND-01\n    applies_to: all\n    rule: "Deploys happen on Fridays only."\n' + text[start:]
+    rules.write_text(hand)
+    r = move(project, repo)
+    assert r.returncode == 0, r.stdout
+    assert "it is derived from the ruleset. Go through this with the owner first" in r.stdout and "HAND-01" in r.stdout
+    assert not (project / "governance-config.json").exists()  # the source is only read
+    r = move(project, repo, "--apply")
+    assert r.returncode == 0, r.stdout
+    target = repo / "governance"
+    cfg = json.loads((target / "governance-config.json").read_text())
+    assert cfg["project_name"] == "demo" and cfg["environment"] == "claude_code"
+    assert "HAND-01" not in (target / "claude-project-rules.yaml").read_text()
+    assert "The config was derived from a hand-kept ruleset" in r.stdout and "list the dropped rules" in r.stdout
+
+
+# ---- the Project's own instructions ---------------------------------------------------------------------
+
+def test_instructions_are_kept_as_history_that_binds_nobody(project, repo, tmp_path):
+    text = tmp_path / "instructions.txt"
+    text.write_text("Always answer in German.\nNever touch the billing module.\nFiles are in /mnt/project-files.\n")
+    r = move(project, repo, "--instructions", text)
+    assert r.returncode == 0 and "kb/imported-project-instructions.md as history; they bind nobody" in r.stdout
+    r = move(project, repo, "--instructions", text, "--apply")
+    assert r.returncode == 0, r.stdout
+    saved = (repo / "governance" / "kb" / "imported-project-instructions.md").read_text()
+    assert "**It binds nobody.**" in saved and "Never touch the billing module." in saved and "Changing settings" in saved
+    assert "Go through ./governance/kb/imported-project-instructions.md with the owner" in r.stdout
+    # it is history: not listed among the files to correct
+    other = r.stdout.split("correct them by hand:")[1].split("\n\n")[0]
+    assert "kb/verification.md" in other and "imported-project-instructions" not in other
+
+
+def test_instructions_with_a_secret_or_empty_are_refused(project, repo, tmp_path):
+    text = tmp_path / "instructions.txt"
+    text.write_text(f"push with {TOKEN}\n")
+    r = move(project, repo, "--instructions", text, "--apply")
+    refused(r, "looks like it holds a secret")
+    assert TOKEN not in r.stdout
+    text.write_text("  \n")
+    refused(move(project, repo, "--instructions", text), "is empty")
+    refused(move(project, repo, "--instructions", tmp_path / "missing.txt"), "cannot read --instructions")
+
+
+# ---- the CLAUDE.md block --------------------------------------------------------------------------------
+
+def test_claude_md_snippet_only_for_a_workspace_in_the_repository(w):
+    assert w.generate().returncode == 0 and w.scaffold().returncode == 0
+    assert not (w.ws / "claude-md-snippet.md").exists()  # a claude.ai Project has no CLAUDE.md
+    assert w.generate(None, "workspace_root=./governance").returncode == 0 and w.scaffold("--refresh").returncode == 0
+    snippet = (w.ws / "claude-md-snippet.md").read_text()
+    for phrase in ("## Project governance", "./governance/rules/<role>.yaml", "./governance/project-state.yaml",
+                   "the owner's newest message, then the ruleset", "never by editing this block"):
+        assert phrase in snippet, phrase
+    assert "{{" not in snippet and len(snippet.splitlines()) < 30

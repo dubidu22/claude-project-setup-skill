@@ -8,6 +8,8 @@ into the target directory:
 
     <out-dir>/
       project_instructions.md     starter block for the Coordinator chat
+      claude-md-snippet.md        in-repo workspaces only: the block for the repository's CLAUDE.md that points
+                                  a new Claude Code session to its role extract
       dispatcher_instructions.md  starter block for the Dispatcher chat (only with dispatcher: true)
       plans/README.md
       plans/contract-template.yaml  acceptance contract template (only with acceptance_contracts: true)
@@ -60,10 +62,11 @@ OPTIONAL_TEMPLATES = {
     "dispatcher_instructions.md": "dispatcher",
     "kb/verification.md": "runtime_verification",
     "kb/features/README.md": "runtime_verification",
+    "claude-md-snippet.md": "in_repo",
 }
 # Generated from the config and never edited by threads: safe to overwrite on --refresh.
 REFRESHABLE = {"project_instructions.md", "dispatcher_instructions.md", "plans/README.md",
-               "plans/contract-template.yaml", "kb/README.md", "ledger/README.md"}
+               "plans/contract-template.yaml", "kb/README.md", "ledger/README.md", "claude-md-snippet.md"}
 LEFTOVERS = {
     "ledger/implementation.md": "an older ledger table; history only, new entries go to ledger/prs/",
     "ledger/review.md": "an older ledger table; history only, new entries go to ledger/rounds/",
