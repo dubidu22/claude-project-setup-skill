@@ -88,8 +88,8 @@ def findings(result) -> list[dict]:
 
 
 def notable(result) -> list[dict]:
-    """Findings without the standing note that some invariants have no enforcing check yet (A15)."""
-    return [f for f in findings(result) if f["code"] != "A15"]
+    """Findings without the standing notes on invariants: no enforcing check yet (A15), check never seen to fail (A16)."""
+    return [f for f in findings(result) if f["code"] not in ("A15", "A16")]
 
 
 def errors(result) -> list[dict]:

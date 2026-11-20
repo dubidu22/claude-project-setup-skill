@@ -25,10 +25,10 @@ project-governance-init/
 │   ├── scaffold_workspace.py      renders assets/templates into the workspace; --github writes github-setup/
 │   ├── audit_rules.py             mechanical ruleset check, read-only
 │   ├── contract_tool.py           contract lint, owner view, hash, pickup check, comparison with the default branch, issue drafts and pre-flight, roadmap check, /goal line
-│   ├── ledger_tool.py             tables, statistics (rounds, reverts, repeated findings, whether a fix held, owner overrides) and the merge gate from the ledger entries, read-only
+│   ├── ledger_tool.py             tables, statistics (rounds, reverts, repeated findings, whether a fix held, owner overrides), the merge gate, the triage of leftovers and the audit flags from the ledger entries, read-only
 │   ├── move_workspace.py          moves a claude.ai Project's workspace into the repository: from a folder, a flat download or in place, also with an older ruleset (preview, then --apply); refuses secrets
 │   ├── repo_readiness.py          does the repository have CI, tests, a linter, a way to run it? read-only
-│   └── pr_checks.py               pull-request checks for the project's CI: title, closing keywords, lane label, file ownership, critical paths, new markdown files, narrating comments (warning); exemptions labelled sanctioned or debt
+│   └── pr_checks.py               pull-request checks for the project's CI: title, closing keywords, lane label, file ownership, critical paths, new markdown files, narrating comments and dependency manifests (warnings); exemptions labelled sanctioned or debt; `--self-test` proves each check on a known-bad pull request
 ├── references/
 │   ├── governance-model.md        the model, the five invariants, rule catalog, operating mechanics, what is enforced by what, checks before prose
 │   ├── acceptance-contracts.md    criteria, work packages, approval, freeze, roadmap
@@ -60,5 +60,8 @@ They cover the generator (type checks, quoting, the self-check of its own output
 ```bash
 claude plugin eval . --allow-tools Write,Edit,Bash --scaffold
 ```
+
+How to record a run, the four-case canary and how to classify failures: [eval-results/README.md](eval-results/README.md). No run has been recorded yet.
+
 
 The eval cases cover the unattended paths (owner cannot reply), the interactive ones (stage 1 of the walkthrough, a settings preview that waits for a yes, the first interview question, approval with and without the hash, issue creation), and routing (bare invocation, an ordinary feature request that must not start specify, an audit asked to fix things). Fixtures that depend on the generator are built at test time by each case's `place-files.sh`.

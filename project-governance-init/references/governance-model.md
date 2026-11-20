@@ -622,6 +622,51 @@ check or a hook):
   counts it. A changed PR needs a new decision. Standing bypasses are not
   offered, because nobody remembers to remove them.
 
+**Proving the checks, and what is left behind** (these points follow the
+practice of the open project `Druthulu/ProjectArchitect`, a plan-and-task
+loop for Claude Code that benchmarks its own agents):
+
+- **Verify the verifier** (`VER-02`). A check that has never failed proves
+  nothing: it may read the wrong input, or not run at all. Each check is
+  shown to fail once on a case known to be wrong. For the pull-request
+  checks this is built in: `pr_checks.py --self-test` runs every configured
+  check against a known-bad pull request and reports `ok`, `off` (not
+  configured) or `DEAD`; the scaffolded workflow runs it before the real
+  checks. For an invariant's own check, record where it was proved in the
+  config, `[check: ci:lint-imports (proved: PR #12)]`; the audit lists
+  checks without that note (A16).
+- **Too good is suspicious, and a summary is a claim** (`VER-02`). A result
+  that looks better than expected is treated as a measurement error first. What
+  another thread, a tool or an older note reports is checked against the
+  file, the diff or the output before a decision rests on it.
+- **A closed list of reasons to stop** (`THR-15`). A worker's report starts
+  with one word: `done`, `question`, `blocked`, `review` or `handoff`.
+  `blocked` and `question` carry the evidence and one recommended action,
+  and are recorded in the PR's ledger entry, where they stop the merge gate
+  until settled. The coordinator routes on the word instead of reading a
+  free-text escalation.
+- **Nothing is left behind without a decision** (`THR-16`). A should-fix
+  finding that survives the merge, or a point a thread set aside, becomes an
+  entry in `ledger/deferred/`. `ledger_tool.py triage` refuses a new batch
+  while one is open. Each ends as planned (an issue), postponed (a reason
+  and until when) or dropped (the owner's word). Deferred work that nobody
+  decided on is how a backlog rots.
+- **An audit in two halves** (`ROLE-15`). The script half is `ledger_tool.py
+  flags`: one line per thing worth judging, derived from the entries. The
+  judgment half is the audit thread, which gives each flag one of five
+  verdicts: check, rule, split, owner or leave. It proposes and builds
+  nothing, so an audit cannot quietly rewrite the tooling it audits.
+- **A reading list per role.** Each role extract starts with `start_reading`
+  and `leave_unread`. What a thread does not load is the cheapest saving
+  there is, and it also keeps a reviewer from being anchored by the
+  implementer's reasoning.
+- **Work at the size asked** (`PR-06`). A feature, option or abstraction the
+  plan does not name is a finding. A new dependency needs three lines: what
+  it does, what the project already has, and the difference.
+- **What was ruled out travels with the handoff** (`THR-07`). The next thread
+  reads what was tried and failed, with the evidence, and does not try it
+  again.
+
 **Known gaps, on purpose.** The checks stop accidents, not a thread that is
 determined to get around them, and none of them is a security boundary:
 
@@ -637,6 +682,13 @@ determined to get around them, and none of them is a security boundary:
 - The comment check is a word list over added lines that begin with a
   comment marker. It misses a great deal and flags some honest comments, so
   it only warns. The new-docs check sees markdown only.
+- The self-test proves that a check can fail, on one built-in case. It does
+  not prove the check catches every wrong pull request, and it runs without
+  the exemptions, so an over-broad exemption is not caught by it.
+- `triage` counts leftovers by number, not by content: three entries for a
+  PR with three should-fix findings satisfy it whatever they say.
+- A hand-back is recorded by the thread that hands back. A thread that does
+  not record it is not stopped by the gate.
 - The regressed marker goes by dates and PR numbers, not by which commits a
   branch contains. It can flag a PR that branched before the fix.
 - The comparison with the default branch (`THR-14`) needs a git checkout

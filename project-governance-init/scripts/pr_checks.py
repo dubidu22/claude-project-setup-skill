@@ -24,6 +24,21 @@ What it checks (rule ids of the generated ruleset):
                          "as requested", ...) or carry a TODO without an issue number are listed as a
                          warning for the reviewer. A word list cannot judge a comment, so this never fails
 
+    dependencies PR-06  a changed dependency manifest (package.json, pyproject.toml, requirements*.txt, go.mod,
+                         Cargo.toml, ...) is listed as a warning: the PR body justifies each new dependency
+
+Self-test. A check that has never been seen to fail proves nothing (VER-02). This runs each configured check
+against a built-in pull request that is wrong in exactly the way the check exists to catch:
+
+    python3 pr_checks.py --config pr-checks.json --self-test
+
+    ok    the check fails on the known-bad pull request, as it should
+    off   the check is not configured in this repository (for example no label_paths), so it cannot fail
+    DEAD  the check is configured and still let the known-bad pull request through; exit code 1
+
+Run it once after setting up the checks and again after every change to pr-checks.json. Exemptions are not
+applied in the self-test.
+
 Exemptions. A file that may break one of the path checks (ownership, unowned, lock, critical, tests, docs) is
 listed in pr-check-exemptions.json next to the config, never in a private allowlist and never by weakening
 a glob. Each entry says what it is:
@@ -79,6 +94,9 @@ NARRATION_RE = re.compile(
 TODO_RE = re.compile(r"\b(?:TODO|FIXME|HACK|XXX)\b")
 ISSUE_REF_RE = re.compile(r"#\d+|/issues/\d+")
 MAX_LISTED = 12
+MANIFEST_RE = re.compile(
+    r"(^|/)(package\.json|pyproject\.toml|requirements[^/]*\.txt|Pipfile|setup\.cfg|setup\.py|go\.mod|Cargo\.toml|Gemfile|"
+    r"pom\.xml|build\.gradle(\.kts)?|composer\.json|pubspec\.yaml|Package\.swift|[^/]+\.csproj)$")
 MIN_REASON = 20
 
 TEST_FILE_RE = re.compile(r"(^|/)(tests?|__tests__|spec)/|(^|/)test_[^/]+\.py$|[._-](test|spec)\.[A-Za-z]+$|_test\.[A-Za-z]+$")
@@ -273,6 +291,11 @@ def run_checks(cfg: dict, title: str, labels: list[str], changes: list[tuple[str
     if deleted:
         add("tests", "WARN", f"test files deleted: {', '.join(deleted)}. The reviewer confirms none was removed to turn CI green (TST-02)")
 
+    manifests = [p for status, p in changes if status != "D" and MANIFEST_RE.search(p) and not (governance and matches(p, governance))]
+    if manifests:
+        add("dependencies", "WARN", f"dependency manifest changed: {', '.join(manifests)}. If a dependency was added, the PR body says "
+            "what it does, what the project already has for that, and the difference that justifies it, and names its licence (PR-06)")
+
     if isinstance(cfg.get("doc_paths"), list):
         stray = [p for status, p in changes if status == "A" and DOC_FILE_RE.search(p)
                  and not matches(p, cfg["doc_paths"]) and not (governance and matches(p, governance)) and not exempt("docs", p)]
@@ -309,18 +332,97 @@ def run_checks(cfg: dict, title: str, labels: list[str], changes: list[tuple[str
     return results
 
 
+def path_for(globs: list[str]) -> str | None:
+    """A file path that matches one of the globs, or None when none can be built."""
+    for g in globs:
+        candidate = g.replace("**", "selftest/x").replace("*", "x").replace("?", "x")
+        if candidate.endswith("/"):
+            candidate += "x"
+        if matches(candidate, globs):
+            return candidate
+    return None
+
+
+def self_test(cfg: dict) -> list[dict]:
+    """Run every check against a pull request that is wrong in the way the check exists to catch."""
+    out: list[dict] = []
+    ownership = cfg.get("ownership_labels") or []
+    label_paths = cfg.get("label_paths") or {}
+    open_labels = cfg.get("open_labels") or []
+    good_title, good_commits = "selftest: known-bad pull request (#1)", "add a file\n"
+    plain = "selftest-known-bad/x.py"
+
+    def case(check: str, want: str, why_off: str | None, title: str = good_title, labels: list[str] | None = None,
+             changes: list[tuple[str, str]] | None = None, commits: str = good_commits, diff: str | None = None) -> None:
+        if why_off:
+            out.append({"check": check, "status": "off", "message": why_off})
+            return
+        results = run_checks(cfg, title, labels or [], changes or [("M", plain)], commits, None, None, diff)
+        got = next((r["status"] for r in results if r["check"] == check), "not run")
+        out.append({"check": check, "status": "ok" if got == want else "DEAD",
+                    "message": f"{'fails' if want == 'FAIL' else 'warns'} on the known-bad pull request, as it should" if got == want
+                    else f"expected {want} on the known-bad pull request, got '{got}': the check does not catch what it is for"})
+
+    case("commits", "FAIL", None, commits="Fixes #1\n")
+    case("title", "FAIL", None, title="wip")
+    case("lane label", "FAIL", None if ownership else "no ownership_labels in the config")
+    restricted = [l for l in label_paths if l in ownership and l not in open_labels and path_for(label_paths[l])]
+    if len(restricted) >= 2:
+        mine, other = restricted[0], restricted[1]
+        foreign = next((c for c in [path_for(label_paths[other])] if c and not matches(c, label_paths[mine])), None)
+        case("ownership", "FAIL", None if foreign else f"the globs of {mine} and {other} overlap; no foreign file can be built",
+             labels=[mine], changes=[("M", foreign or plain)])
+    else:
+        case("ownership", "FAIL", "fewer than two labels with their own path globs (label_paths)")
+    lock, locked = cfg.get("lock_label"), cfg.get("locked_label")
+    locked_file = path_for(label_paths.get(locked) or []) if locked else None
+    case("lock", "FAIL", None if lock and locked_file and lock in ownership else "no lock label with a locked label that has path globs",
+         labels=[locked] if locked else [], changes=[("M", locked_file or plain)])
+    crit = path_for(cfg.get("critical_paths") or [])
+    case("critical", "FAIL", None if crit else "no critical_paths in the config", labels=ownership[:1], changes=[("M", crit or plain)])
+    case("tests", "WARN", None, changes=[("D", "tests/test_selftest_known_bad.py")])
+    doc_paths = cfg.get("doc_paths")
+    note = "SELFTEST-KNOWN-BAD-NOTES.md"
+    case("new docs", "FAIL", None if isinstance(doc_paths, list) else "no doc_paths in the config", changes=[("A", note)])
+    case("dependencies", "WARN", None, changes=[("M", "selftest-known-bad/package.json")])
+    case("comments", "WARN", None, diff=f"--- a/{plain}\n+++ b/{plain}\n@@ -0,0 +1,1 @@\n+# previously this used a list, now uses a set\n")
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Deterministic pull-request checks for a governed repository")
     ap.add_argument("--config", type=Path, required=True, help="pr-checks.json written by scaffold_workspace.py --github")
-    ap.add_argument("--title", required=True)
+    ap.add_argument("--self-test", action="store_true", help="prove each configured check on a built-in known-bad pull request")
+    ap.add_argument("--title")
     ap.add_argument("--labels", default="", help="comma-separated labels on the pull request")
-    ap.add_argument("--files", type=Path, required=True, help="file with `git diff --name-status` output")
-    ap.add_argument("--commits", type=Path, required=True, help="file with the commit messages of the pull request")
+    ap.add_argument("--files", type=Path, help="file with `git diff --name-status` output")
+    ap.add_argument("--commits", type=Path, help="file with the commit messages of the pull request")
     ap.add_argument("--diff", type=Path, help="file with `git diff <base>...<head>` output; turns on the comment check")
     ap.add_argument("--exemptions", type=Path, help="exemptions file (default: pr-check-exemptions.json next to the config, if it exists)")
     ap.add_argument("--open-issues", help="comma-separated numbers of the open issues; a debt exemption whose issue is not among them fails")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
+    if args.self_test:
+        try:
+            cfg = json.loads(args.config.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        if not isinstance(cfg, dict):
+            print("error: the config must be a JSON object", file=sys.stderr)
+            return 2
+        results = self_test(cfg)
+        dead = [r for r in results if r["status"] == "DEAD"]
+        if args.json:
+            print(json.dumps(results, indent=2))
+        else:
+            for r in results:
+                print(f"{r['status']:<4} {r['check']}: {r['message']}")
+            live = sum(1 for r in results if r["status"] == "ok")
+            print(f"\n{live} check(s) proved, {sum(1 for r in results if r['status'] == 'off')} not configured, {len(dead)} dead.")
+        return 1 if dead else 0
+    if args.title is None or args.files is None or args.commits is None:
+        ap.error("--title, --files and --commits are required (or use --self-test)")
     exemptions: list[dict] = []
     open_issues: set[int] | None = None
     try:

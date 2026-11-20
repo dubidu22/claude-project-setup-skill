@@ -44,7 +44,9 @@ acceptance_contracts, dispatcher, compaction, in_repo, escalation, contracts_in_
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -348,6 +350,7 @@ PR_CHECKS_WORKFLOW = """\
 # critical paths, new markdown files, narrating comments), so they are not left to a thread remembering a rule. Copy to
 # .github/workflows/governance-pr-checks.yml, with pr_checks.py and pr-checks.json in .github/governance/.
 # Then make this check required in the branch protection of the default branch.
+# The first command proves the checks themselves: each one must fail on a built-in known-bad pull request.
 # Not run by the skill's own tests: check the syntax and the action versions before relying on it.
 name: governance pr checks
 on:
@@ -373,6 +376,8 @@ jobs:
           git diff --name-status "$PR_BASE...$PR_HEAD" > "$RUNNER_TEMP/changed.txt"
           git log --format=%B "$PR_BASE..$PR_HEAD" > "$RUNNER_TEMP/commits.txt"
           git diff "$PR_BASE...$PR_HEAD" > "$RUNNER_TEMP/diff.txt"
+          # a check that cannot fail proves nothing: prove each one on a known-bad pull request first (VER-02)
+          python3 .github/governance/pr_checks.py --config .github/governance/pr-checks.json --self-test
           python3 .github/governance/pr_checks.py --config .github/governance/pr-checks.json \\
             --title "$PR_TITLE" --labels "$PR_LABELS" \\
             --files "$RUNNER_TEMP/changed.txt" --commits "$RUNNER_TEMP/commits.txt" --diff "$RUNNER_TEMP/diff.txt"
@@ -397,6 +402,9 @@ def github_readme(cfg: dict[str, Any], names: list[str]) -> str:
         " `pr-check-exemptions.json` goes to `.github/governance/` too: a file that has to break a path check is "
         "listed there as `sanctioned` (permanent, with a reason) or `debt` (with a reason and the issue that removes "
         "it); nothing else lets a PR past a check (`PR-04`). The format is in the header of `pr_checks.py`. "
+        "After copying the files, run `python3 .github/governance/pr_checks.py --config .github/governance/pr-checks.json "
+        "--self-test` once: every configured check must fail on its built-in known-bad pull request (`VER-02`); a line "
+        "`DEAD` means that check catches nothing. The workflow repeats this on every pull request. "
         "Known gaps, on purpose: the checks stop accidents, not intent. They are only as strong as the branch "
         "protection that requires them and the owner review of `.github/governance/`."
         + ("" if cfg["label_paths"] else " File ownership is not checked yet: set `label_paths` in the governance "
@@ -478,6 +486,12 @@ def main() -> int:
             continue
         results.append(write(out / rel, render(tpl.read_text(encoding="utf-8"), values, flags, rel.as_posix()),
                              args.force or (args.refresh and rel.as_posix() in REFRESHABLE)))
+    # From this day on, a merged PR's leftover should-fix findings must be recorded (ledger_tool.py triage, THR-16).
+    # Written once: an older ledger is not asked to account for merges from before the rule existed.
+    since = out / "ledger" / "deferred" / "since.txt"
+    if not since.exists():
+        day = os.environ.get("GOVERNANCE_TODAY") or datetime.date.today().isoformat()
+        results.append(write(since, "# Merges before this date are not counted by `ledger_tool.py triage`. Do not edit.\n" + day + "\n", False))
     tool_force = args.force or args.refresh
     results.append(write(out / "tools" / "ledger_tool.py", (SCRIPT_DIR / "ledger_tool.py").read_text(encoding="utf-8"), tool_force))
     if flags["acceptance_contracts"]:

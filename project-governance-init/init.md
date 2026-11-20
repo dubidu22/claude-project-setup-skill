@@ -138,7 +138,9 @@ rule exists to get real decisions, not to block when there is nobody to decide.
    non-commercial, unclear); and the project's own hard rules (layer order,
    determinism, schema compatibility). Phrase each invariant as a testable
    sentence; vague ones are ignored later. For each one ask what enforces
-   it, and write it as `"<sentence> [check: <lint rule, test or CI job>]"`;
+   it, and write it as `"<sentence> [check: <lint rule, test or CI job>]"`,
+   adding `(proved: <where it was seen to fail>)` inside the brackets once
+   the check has failed on a case known to be wrong (`VER-02`);
    the same question for the licence gate (`licence_check`) and the
    telemetry ban (`telemetry_check`). An invariant without a check is
    rendered as "Enforced by: review only" and listed by the audit; say so,
