@@ -92,7 +92,7 @@ def test_stale_or_edited_extract_is_flagged(w):
 
 
 def test_rule_load_is_counted_per_role_so_custom_invariants_have_room(w):
-    many = json.dumps([f"Invariant number {i} holds." for i in range(8)])
+    many = json.dumps([f"Invariant number {i} holds." for i in range(7)])  # 7 since THR-15 joined the implementation rules
     w.generate(None, f"custom_invariants={many}", "workspace_root=./governance")
     assert not [m for c, m in codes(w.audit("--json")) if c == "A08" and "bound by" in m]
     many = json.dumps([f"Invariant number {i} holds." for i in range(20)])

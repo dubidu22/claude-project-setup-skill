@@ -107,6 +107,10 @@ def place(name: str, path: Path) -> str | None:
         return f"plans/{name}"
     if re.fullmatch(r"pr\d+-round\d+\.ya?ml", name):
         return f"ledger/rounds/{name}"
+    if re.fullmatch(r"pr\d+-\d+\.ya?ml", name):
+        return f"ledger/deferred/{name}"
+    if name == "since.txt":
+        return "ledger/deferred/since.txt"
     if re.fullmatch(r"pr-\d+\.ya?ml", name):
         keys = keys_of(path)
         if "opened" in keys and "thread" in keys:

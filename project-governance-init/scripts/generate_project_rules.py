@@ -840,6 +840,11 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
               "batch diff for cross-PR inconsistencies, contract touches, and workarounds or patterns the project "
               "has moved away from that appear in more than one PR (later threads copy what they find), and writes its findings to "
               + ws + "/ledger/audits/."),
+        *rule("ROLE-15", "audit",
+              "An audit starts from the output of " + ws + "/tools/ledger_tool.py flags, not from thread chats. Each flag "
+              "and each finding gets one verdict: check (a lint rule, test or CI check would have caught it; name it), "
+              "rule (a rule is wrong or missing; it goes to the owner), split (the plan or PR was too large), owner (needs "
+              "the owner's decision), or leave (the cost is the work itself; say why). The audit proposes and builds nothing."),
     ]
     if contracts:
         roles += rule("ROLE-10", "specify",
@@ -953,7 +958,7 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
         *rule("THR-07", "all",
               "A thread silent for longer than execution_profile.token_economy.cache_ttl_minutes pays for its whole "
               "history again on its next message. Before such a wait, write a three-line handoff (goal, done, next) "
-              "into your plan or round report. Except for the coordinator, work that resumes after the gap goes to a "
+              "into your plan or round report, and under it what you tried and ruled out, with the evidence. Except for the coordinator, work that resumes after the gap goes to a "
               "fresh thread started from that handoff."),
         *rule("THR-08", ops,
               "Give related small fixes to the thread that is already warm on that code, back to back, rather than a "
@@ -962,6 +967,17 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
               "A thread keeps its model and its tool set from first message to last; changing either re-sends the "
               "whole history uncached, so work that needs another model goes to another thread. Keep tool output out "
               "of the chat: quiet flags, tail -50, or a file read only where it fails; report a check in one line."),
+        *rule("THR-15", "implementation,review",
+              "A worker's report starts with one word: done, question, blocked, review or handoff. It stops only as "
+              "blocked (two attempts failed for different reasons; finishing would break a rule, name its id; or it "
+              "needs a destructive git operation, never attempted), question (plan or scope must change) or review "
+              "(the owner must look). blocked and question carry the evidence and a line Recommended: <one action>, "
+              "and go in the PR's ledger entry."),
+        *rule("THR-16", "coordinator",
+              "Before composing a batch, run " + ws + "/tools/ledger_tool.py triage. Every should-fix finding a merged "
+              "PR left open, and every point a thread set aside, is one entry in " + ws + "/ledger/deferred/ that you "
+              "write from the round report, with a decision: planned (the issue), postponed (reason and until when) or "
+              "dropped (the owner's word and the reason). No batch starts while triage reports an open item."),
     ]
 
     # ---- plans and criticality ---------------------------------------------
@@ -1029,6 +1045,10 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
               "Create no file the rules, the approved plan or the owner did not name: no summary, notes or report "
               "files, and new markdown only under project_profile.doc_paths. Reports go in the PR body or the "
               "ledger."),
+        *rule("PR-06", "review",
+              "A PR does the task at the size it was asked: a feature, option, abstraction or test the plan does not "
+              "name is a finding. A new dependency, tool or service needs three lines in the PR body: what it does, "
+              "what the project already has for that, and the difference that justifies it."),
         *rule("REV-01", "review",
               "Non-critical PRs run up to execution_profile.token_economy.non_critical_max_review_rounds rounds; "
               "should-fix leftovers are then deferred to issues, must-fix findings never (" + must_fix_route + "). "
@@ -1218,6 +1238,11 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
         *rule("TST-02", "implementation",
               "Never weaken, skip, or delete a failing test to turn CI green. Flaky tests without code cause are "
               "quarantined same-day with a linked GitHub issue and must be fixed before release."),
+        *rule("VER-02", "review,audit",
+              "A check counts only after it has failed once on a case known to be wrong; until then green proves "
+              "nothing (pr_checks.py --self-test does this for the pull-request checks). A result that looks too good "
+              "is a measurement error until shown otherwise. A summary from another thread, a tool or an older note is "
+              "a claim: check it against the file, the diff or the output before a decision rests on it."),
         *(rule("VER-01", "implementation",
                "Behaviour a user can see is proven by running the product the way a user would, following " + ws
                + "/kb/verification.md: the real path, no test-only shortcut or internal setter, with the evidence "
@@ -1252,6 +1277,40 @@ _RULE_RE = re.compile(r"^  - id: (\S+)\n    applies_to: (\S+)\n    rule: (.*)$",
 EXTRACT_DIR = "rules"
 
 
+def reading_lists(ws: str, contracts: bool) -> dict[str, tuple[list[str], list[str]]]:
+    """Per role: (what to read when the thread starts, what to leave unread). Small context is the cheapest saving."""
+    brief = [f"the contract brief for your work package: python3 {ws}/tools/contract_tool.py brief"] if contracts else []
+    summary = [f"the contract summary: python3 {ws}/tools/contract_tool.py summary"] if contracts else []
+    return {
+        "coordinator": (
+            [f"{ws}/project-state.yaml", f"{ws}/kb/pending-decisions.md", f"the output of python3 {ws}/tools/ledger_tool.py stats and triage"],
+            ["diffs, logs and research", "whole plans and whole contracts (a summary is enough)",
+             f"the whole decision log (search {ws}/kb/decision-log.md for the D-number you need)"]),
+        "dispatcher": (
+            [f"{ws}/plans/batch-<NNN>.md", f"{ws}/project-state.yaml"],
+            ["diffs and product code", "plans of work that is not in the batch"]),
+        "implementation": (
+            ["the issue and your plan in " + ws + "/plans/", *brief, "the files your plan names, by range where they are long"],
+            ["other lanes' plans and code", "other threads' round reports and the ledger history",
+             f"older entries of {ws}/kb/decision-log.md (read the newest, search for a D-number you need)", "the full ruleset (this extract is enough)"]),
+        "review": (
+            ["the pull request's diff", "the plan it implements", *summary, "the previous round report for this pull request"],
+            ["the implementation thread's chat", "other pull requests", "code outside the diff, unless a finding needs it"]),
+        "kb": (
+            [f"{ws}/kb/pending-decisions.md", f"the last entries of {ws}/kb/decision-log.md"],
+            ["product code", "plans and round reports"]),
+        "audit": (
+            [f"the output of python3 {ws}/tools/ledger_tool.py flags", "the merged batch diff"],
+            ["thread chats", "round reports, unless a flag names one"]),
+        "specify": (
+            [f"{ws}/roadmap.yaml", f"the contracts in {ws}/plans/", f"{ws}/tools/acceptance-contracts.md"],
+            ["product code beyond what a criterion needs", "the ledger"]),
+        "assist": (
+            [f"the hand step named for you in {ws}/project-state.yaml"],
+            ["everything else"]),
+    }
+
+
 def role_extracts(rules_text: str) -> dict[str, str]:
     """Per-role extracts of a generated ruleset: profile blocks plus the rules scoped to that role or to all."""
     header = "\n".join(l for l in rules_text.split("\nauthority:")[0].splitlines() if l and not l.startswith("#"))
@@ -1259,6 +1318,8 @@ def role_extracts(rules_text: str) -> dict[str, str]:
     profile = m.group(0).rstrip() if m else ""
     found = _RULE_RE.findall(rules_text)
     roles = sorted({s for _, scope, _ in found for s in scope.split(",")} - {"all", "owner"})
+    m = re.search(r'^  workspace_root: "?([^"\n]+)"?$', rules_text, re.MULTILINE)
+    lists = reading_lists(m.group(1).strip() if m else ".", "specify" in roles)
     out: dict[str, str] = {}
     for role in roles:
         mine = [(rid, scope, body) for rid, scope, body in found if {role, "all"} & set(scope.split(","))]
@@ -1270,8 +1331,13 @@ def role_extracts(rules_text: str) -> dict[str, str]:
             "",
             profile,
             "",
-            "rules:",
         ]
+        if role in lists:
+            first, skip = lists[role]
+            lines += ["# Read only this when you start; ask a running thread or search for anything else.",
+                      "start_reading:", *[f"  - {yaml_quote(x)}" for x in first],
+                      "leave_unread:", *[f"  - {yaml_quote(x)}" for x in skip], ""]
+        lines.append("rules:")
         for rid, scope, body in mine:
             lines += [f"  - id: {rid}", f"    applies_to: {scope}", f"    rule: {body}"]
         out[role] = "\n".join(lines) + "\n"

@@ -604,6 +604,14 @@ def run_checks(data: dict[str, Any], rules: list[Rule], raw_text: str, state_tex
     if prose_only:
         f.append(Finding("A15", "INFO", f"{', '.join(prose_only)} {'is' if len(prose_only) == 1 else 'are'} enforced by review only. An invariant holds reliably once a lint rule, test or CI check enforces it; name that check in the config (`[check: ...]`, `licence_check`, `telemetry_check`)", "hard_invariants_and_owner_prefs"))
 
+    # --- A16 checks that were never seen to fail ---
+    unproved = [r.id for r in rules if (r.id or "").startswith("INV-")
+                and re.search(r"Enforced by:\s*(?!review only)\S", r.text, re.I) and not re.search(r"\(proved:", r.text, re.I)]
+    if unproved:
+        f.append(Finding("A16", "INFO", f"{', '.join(unproved)} name{'s' if len(unproved) == 1 else ''} a check that is not recorded as proved. "
+                         "A check counts once it has failed on a case known to be wrong (VER-02); note where in the config, "
+                         "e.g. `[check: ci:lint-imports (proved: PR #12)]`", "hard_invariants_and_owner_prefs"))
+
     # --- A12 per-role extracts in step with the ruleset ---
     if extracts:
         version, date = str(data.get("version", "")), str(data.get("date", ""))
@@ -670,7 +678,7 @@ def render_markdown(path: Path, findings: list[Finding], n_rules: int) -> str:
     lines.append("Codes: A01 header, A02 ids, A03 scopes, A04 lanes/labels, A05 execution profile, "
                  "A06 state leakage, A07 dead history, A08 token bloat, A09 contradiction patterns, A10 state file, "
                  "A11 optional roles, A12 per-role extracts, A13 authority order, A14 comparison with the default branch, "
-                 "A15 invariants without a check.")
+                 "A15 invariants without a check, A16 checks never seen to fail.")
     return "\n".join(lines) + "\n"
 
 
