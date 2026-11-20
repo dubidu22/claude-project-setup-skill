@@ -26,7 +26,7 @@ project-governance-init/
 │   ├── audit_rules.py             mechanical ruleset check, read-only
 │   ├── contract_tool.py           contract lint, owner view, hash, pickup check, comparison with the default branch, issue drafts and pre-flight, roadmap check, /goal line
 │   ├── ledger_tool.py             tables, statistics (rounds, reverts, repeated findings, whether a fix held, owner overrides) and the merge gate from the ledger entries, read-only
-│   ├── move_workspace.py          moves a claude.ai Project's workspace into the repository (preview, then --apply); refuses secrets
+│   ├── move_workspace.py          moves a claude.ai Project's workspace into the repository: from a folder, a flat download or in place, also with an older ruleset (preview, then --apply); refuses secrets
 │   ├── repo_readiness.py          does the repository have CI, tests, a linter, a way to run it? read-only
 │   └── pr_checks.py               pull-request checks for the project's CI: title, closing keywords, lane label, file ownership, critical paths, new markdown files, narrating comments (warning); exemptions labelled sanctioned or debt
 ├── references/

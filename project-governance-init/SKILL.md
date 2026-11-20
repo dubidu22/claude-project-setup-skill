@@ -26,7 +26,7 @@ that file; never mention this choice to the user.
 | governance for a project that has none | `init.md` | yes: generates and scaffolds |
 | a setting changed in a running project (models, token profile, dispatcher, ...) | `init.md`, section "Changing settings" | yes: regenerates the rules, keeps live state |
 | a project that already runs on a ruleset but has no `governance-config.json` (older or hand-edited) brought onto the generator | `init.md`, section "Migrating an existing ruleset" | yes, after a diff the owner has seen; state, decision log and ledgers are kept |
-| a project whose coordinator lives in a claude.ai Project moved into its repository, so the threads run in Claude Code | `init.md`, section "Moving a Project's workspace into the repository" | yes, after a preview the owner has seen; history and live state are kept |
+| a project whose coordinator lives in a claude.ai Project moved into its repository or a local Claude Code folder (files downloaded, flat, already in the repo, or with an older ruleset) | `init.md`, section "Moving a Project's workspace into the repository" | yes, after a preview the owner has seen; history and live state are kept |
 | a feature idea or a change of plans turned into criteria, issues and a roadmap update | `specify.md` | drafts only, until the owner says yes |
 | an existing ruleset, state file, roadmap or acceptance contract checked | `audit.md` | no: report only |
 

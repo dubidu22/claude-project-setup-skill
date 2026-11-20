@@ -362,53 +362,72 @@ Nothing live is overwritten before the owner has seen the difference.
 
 ## Moving a Project's workspace into the repository
 
-For a project whose coordinator and files live in a claude.ai Project and
-whose code is pushed to a repository. After the move the threads run in
-Claude Code inside the repository, and the rules gain what needs a git
-checkout: the comparison with the default branch, one worktree per thread,
-the pull-request checks and the owner's review through CODEOWNERS.
+For a project whose coordinator lives in a claude.ai Project and whose code
+is in a repository. After the move the threads run in Claude Code inside a
+local clone, and the rules gain what needs a git checkout: the comparison
+with the default branch, one worktree per thread, the pull-request checks
+and the owner's review through CODEOWNERS.
 
-Run this in Claude Code, in the repository checkout. Do one project at a
-time, and not in the middle of a review round.
+Run this in Claude Code, in the local clone. Do one project at a time, and
+not in the middle of a review round. Never ask for tokens or other secrets
+and do not accept them: Claude Code pushes with the owner's own git
+credentials.
 
-1. **Get the files.** The owner downloads the Project's files into a folder
-   outside the repository, keeping the workspace layout (`plans/`, `kb/`,
-   `ledger/`, `rules/`, the ruleset, `governance-config.json`,
-   `project-state.yaml`). Do not ask for tokens or other secrets and do not
-   accept them: Claude Code pushes with the owner's own git credentials.
-   If there is no `governance-config.json`, this is not a move: use
-   "Migrating an existing ruleset" first, or a plain init in the repository.
-2. **Preview.** Nothing is written:
+**First find out which case this is.** Ask only what you cannot see.
+
+| What you find | Route |
+|---|---|
+| The governance files are in a folder outside the repository, in the workspace layout (`plans/`, `kb/`, `ledger/`, `rules/`) | `--from <folder>` |
+| The governance files were downloaded from the Project as one flat list of files | `--from <folder>`; files are placed by name, what cannot be placed goes to `unsorted/` |
+| The governance files are already in the repository (the Project read them from there) | `--in-place`; commit or stash open changes in that folder first |
+| There is a `claude-project-rules.yaml` but no `governance-config.json` (older or hand-edited) | any route above; the config is derived first and the preview lists what would be dropped. Go through that list with the owner as in "Migrating an existing ruleset", step 1 |
+| There is no ruleset at all (a plain Project) | not a move: run the normal init in the clone, and use the Project's instructions as input for stage 5 (invariants, owner preferences) |
+| The Project has its own instructions text | add `--instructions <file>` to any route; it is kept as history and binds nobody |
+| Other files in the Project (PDFs, notes) | not governance: the owner decides what goes into the repository's docs folder; do not copy them unasked (`PR-05`) |
+
+1. **Preview.** Nothing is written:
    ```bash
-   python3 scripts/move_workspace.py --from <downloaded folder> --repo <repo checkout> --to governance
+   python3 scripts/move_workspace.py --from <folder> --repo <clone> --to governance
+   python3 scripts/move_workspace.py --in-place --repo <clone> --to governance
    ```
-   It refuses when the source is not a generated workspace, the repository
-   is not a git checkout, the target folder already has files, or a file
-   looks like it holds a secret. It warns when the ledger shows open PRs.
-   Show the owner what it prints: the number of files, the settings that
+   It refuses when the repository is not a git checkout, the target folder
+   already has files (or, in place, has uncommitted changes), two files
+   would land on the same place, or a file looks like it holds a secret. It
+   warns when the ledger shows open PRs. Show the owner what it prints:
+   where each file goes, what is left for them to sort, the settings that
    change (`environment`, `workspace_root`, `default_branch`,
    `governance_branch`), the rules added (`THR-11`, `THR-13`, `THR-14`) and
-   the rules reworded.
-3. **Stop and wait for the owner's yes.** The request to move is not the go;
+   reworded, and for a derived config the rules that would be dropped.
+2. **Stop and wait for the owner's yes.** The request to move is not the go;
    the owner has not yet seen the preview. If the ledger shows open PRs,
    ask whether to finish them first and recommend that.
-4. **Apply.** The same command with `--apply`. It copies the files,
-   regenerates the ruleset for the new place, refreshes the generated files,
-   writes `github-setup/`, audits, and lists files that still name the old
-   location. History files are left as they are; correct the others it
-   lists. If a step fails, the copied folder is removed again. The script
-   runs no git command.
-5. **Hand over**, in this order:
+3. **Apply.** The same command with `--apply`. It copies the files (not in
+   place), regenerates the ruleset for the new place, refreshes the
+   generated files, writes `github-setup/` and `claude-md-snippet.md`,
+   audits, and lists files that still name the old location. History files
+   are left as they are; correct the others it lists. If a step fails, the
+   copied folder is removed again; in place, it prints the two git commands
+   that restore the folder. The script changes nothing in git.
+4. **Hand over**, in this order:
    - Commit the folder on a branch and open a pull request into the default
-     branch. The owner reviews and merges it. Until then the audit reports
-     A14 and `contract_tool.py goal` and `pickup` refuse; both are expected
-     and must be gone afterwards.
+     branch. In the same pull request, put the block from
+     `claude-md-snippet.md` into `CLAUDE.md` at the repository root: it is
+     how a new Claude Code session finds its role extract. The owner
+     reviews and merges. Until then the audit reports A14 and
+     `contract_tool.py goal` and `pickup` refuse; both are expected and
+     must be gone afterwards.
    - The owner applies `github-setup/` (labels, pull-request checks,
      CODEOWNERS, branch protection).
+   - If instructions were imported, go through
+     `kb/imported-project-instructions.md` with the owner: a line that
+     still matters becomes a setting through "Changing settings", the rest
+     is dropped. If files landed in `unsorted/`, the owner says where each
+     belongs.
    - Every thread starts fresh in Claude Code from its role extract. The
      chats in the Project stop. Two sets of threads on one repository is
      the one thing a move must not produce; say so plainly.
-   - One decision-log entry: moved to `./governance`, ruleset version, date.
+   - One decision-log entry: moved to `./governance`, ruleset version, date,
+     and for a derived config the dropped rules.
    - The owner revokes tokens the Project used for pushing.
 
 The Project can stay as an archive or as the owner's place for scope talks.
