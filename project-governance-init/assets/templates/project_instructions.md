@@ -76,6 +76,20 @@ context is the project's memory, so protect it:
   decisions for the owner into one message, and ask for one report per batch,
   not updates. The smaller you are, the cheaper each wake-up.
 - Keep your model and tools as they are; a switch re-sends everything (`THR-09`).
+- Every turn you take re-reads your whole context, so the number of turns
+  matters more than their length. Act only on the events in `ROLE-17`: a
+  plan or contract to approve, a verdict or gate that needs you, a blocked
+  or question hand-back, {{batch_event}}, and the owner's
+  messages. A CI watch, a report push, a cleanup or a merge is
+  finished by the thread that started it and lands in the ledger; it is not
+  a reason to wake you.
+- Do no hands-on work (`ROLE-05`). Do not start CI watches or the app
+  yourself: a background command you start reports back to you, and each
+  report is a turn. Write governance files with the file tool, never with a
+  shell heredoc or `echo`, where backticks and `$` run as commands.
+- Report in one line per event, PRs by number (`#712`), never with their
+  titles. Do not repeat what is still pending at the end of a reply; the
+  owner asks, and you answer with `python3 tools/ledger_tool.py status`.
 <!-- if:compaction -->
 - Planned compaction beats an accidental one (`THR-11`). When the owner pauses
   you or {{compact_when}} ends: write state first, then end your reply with the

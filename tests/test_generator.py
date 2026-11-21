@@ -26,7 +26,8 @@ def test_default_generation_is_clean(w):
 @pytest.mark.parametrize("sets", [
     ("workspace_root=./governance",),
     ("model_preset=economy", "profile_key=frugal", "workspace_root=./governance"),
-    ("acceptance_contracts=false", "dispatcher=false", "workspace_root=./gov", "coordinator_compact_every_batches=0"),
+    ("acceptance_contracts=false", "dispatcher=false", "token_cfg.max_concurrent_lanes=2", "workspace_root=./gov",
+     "coordinator_compact_every_batches=0"),  # no dispatcher is fine for a small project; with 3 lanes the audit warns (A17)
     ("stack_key=fullstack_web",),
     ("stack_key=custom", "profile_key=max_velocity"),
     ("token_cfg.critical_max_review_rounds=3",),

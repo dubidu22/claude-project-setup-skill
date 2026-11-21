@@ -126,7 +126,11 @@ rule exists to get real decisions, not to block when there is nobody to decide.
    second, disposable thread for per-PR operations. Recommend on: the
    coordinator lives for the whole project and should never compress, and the
    dispatcher is what keeps per-PR traffic out of it. Off only for a small
-   project with one or two lanes (reference file, section 1).
+   project with one or two lanes (reference file, section 1). With it off,
+   every watch, merge go and relay is a turn of the coordinator on its
+   whole context, on the coordinator's model: say so, and if the owner keeps
+   it off, recommend a coordinator model they are content to pay for at that
+   rate. The audit warns about this (A17).
 5. **Quality gates and invariants**: what counts as critical here
    (`critical_areas`; the default list is generic, so add the project's own,
    for example "golden/regression files" or "user-file deletion paths") and,
@@ -316,8 +320,11 @@ Other keys: `--dump-schema` lists them; set them the same way.
      Name every switch the owner has to make themselves in the app (a new
      coordinator model in the coordinator chat, a default model if they want
      one); do not make it for them.
-   - Dispatcher turned on: open a dispatcher chat with
-     `dispatcher_instructions.md`. Turned off: close it after its batch.
+   - Dispatcher turned on: do it at the start of a batch, not in the middle
+     of one. Open a dispatcher chat on the operations model with
+     `dispatcher_instructions.md`, and start the coordinator fresh: its old
+     chat is full of the per-PR traffic the dispatcher now takes. Turned off:
+     close it after its batch.
    - A cheaper routine model is a bet: compare review rounds per PR
      (`ledger_tool.py stats`) after the next batch.
 

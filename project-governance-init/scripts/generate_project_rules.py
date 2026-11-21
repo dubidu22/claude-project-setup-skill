@@ -818,7 +818,10 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
               "change; the owner makes it, or approves that exact change first."),
         *rule("ROLE-04", "coordinator", role04),
         *rule("ROLE-05", "coordinator",
-              "The coordinator writes no product code and uses worker threads for GitHub API lookups."),
+              "The coordinator writes no product code and does no hands-on work: GitHub lookups, CI and merge "
+              "watches, starting or stopping the app, and cleanups go to " + ("the dispatcher or " if disp else "")
+              + "a worker thread. It writes governance files with the file tool, never with a shell heredoc or echo, "
+              "where backticks and $ run as commands."),
         *rule("ROLE-06", "implementation",
               "An implementation thread reads the newest KB, plans, and decision log, posts a plan before coding that "
               "says whether the work is critical (CRIT-01), implements and tests strictly within its lane, opens the "
@@ -826,7 +829,9 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
               "to " + main_branch + ", or force-pushes."),
         *rule("ROLE-07", "review",
               "A review thread is never the PR author. It reviews all PRs of a batch in rounds, writes round reports "
-              "and their ledger entries, inspects CI checks, and squash-merges only on " + merge_go + "."),
+              "and their ledger entries, inspects CI checks, and squash-merges only on " + merge_go + ". After a "
+              "merge it watches the run on " + main_branch + " for the merge commit and records the result in the "
+              "round entry, so nobody else has to watch."),
         *rule("ROLE-08", "kb",
               ("The KB thread compiles the entries of " + ws + "/kb/pending-decisions.md into the decision-log PR "
                "according to execution_profile.token_economy.kb_pr_cadence and self-merges without code review."
@@ -858,6 +863,12 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
                   "settings) one step at a time and checks the result where it can. It never has a secret pasted into "
                   "chat: secrets go straight into the service that stores them. When the step is done it tells the "
                   "coordinator the step's title and ends.")
+    roles += rule("ROLE-17", "coordinator",
+              "Act on few events: a plan or contract to approve, a verdict or gate that needs you (critical, escalated, "
+              "refused), a blocked or question hand-back, " + ("the batch report" if disp else "the end of a batch")
+              + ", and the owner's messages. Everything else ends in the thread it belongs to. Report one line per "
+              "event, PRs by number only, never their titles, and no list of what is pending: ledger_tool.py status "
+              "prints that when asked.")
     roles += rule("ROLE-13", "coordinator",
                   "Answer the owner's short questions directly. Keep open hand steps in owner_open_steps in " + ws +
                   "/project-state.yaml and remove one when its assist thread reports it done; asked what is open, list "

@@ -332,6 +332,21 @@ message writes the whole history again. Fewer raw tokens is therefore not the
 same as less usage, and the size of a file matters less than how often it is
 re-sent uncached.
 
+**Where a coordinator's tokens go.** A turn costs roughly the size of the
+context it re-reads. A coordinator lives long, so its context is the largest
+in the project, and each extra turn costs more than the one before. Ten
+one-line wake-ups for watches and merges cost far more than one report per
+batch. In an excerpt from a running project (about ten coordinator turns
+for two merges, a plan approval and a review verdict), the turns came from
+background commands the coordinator had started itself, from relaying merge
+go and merge recorded as separate turns, and from repeating the same list
+of open items in six replies. Hence, in this order: the dispatcher on a
+cheaper model takes all per-PR traffic (`ROLE-11`); the coordinator acts on
+the few events of `ROLE-17` and does no hands-on work (`ROLE-05`); the thread
+that merges also watches the run on the default branch (`ROLE-07`); and
+what is open is printed by `ledger_tool.py status`, not carried in chat. The
+audit warns when the dispatcher is off while three or more lanes run (A17).
+
 Evidence: [claude-code-usage-analysis](https://github.com/inevolin/claude-code-usage-analysis)
 (live runs on the Claude Code CLI, Opus 5.5, 5-minute cache).
 
