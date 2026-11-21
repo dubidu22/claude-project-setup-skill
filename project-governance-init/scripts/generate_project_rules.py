@@ -324,6 +324,8 @@ def default_config(project_name: str = "my-project") -> dict[str, Any]:
         "telemetry_check": "",
         "custom_invariants": [],
         "label_paths": [],
+        "seam_groups": [],
+        "seam_audit_every_prs": 15,
         "doc_paths": list(DEFAULT_DOC_PATHS),
         "runtime_verification": True,
         "owner_prefs": [],
@@ -346,6 +348,7 @@ INT_MIN = {
     "critical_max_review_rounds": 1,
     "goal_turn_cap": 1,
     "rounds_after_escalation": 1,
+    "seam_audit_every_prs": 5,
 }
 CHOICES = {
     "stack_key": tuple(STACK_PRESETS),
@@ -412,6 +415,23 @@ def validate_config(cfg: dict[str, Any]) -> None:
         if isinstance(label, str) and not re.fullmatch(r"lane:[a-z0-9_-]+", label):
             problems.append(f"ownership_labels: '{label}' must look like lane:<name> (lower case, digits, - or _)")
     labels = cfg.get("ownership_labels") if isinstance(cfg.get("ownership_labels"), list) else []
+    seen_groups: set[str] = set()
+    for entry in cfg.get("seam_groups") if isinstance(cfg.get("seam_groups"), list) else []:
+        if not isinstance(entry, str):
+            continue
+        name, sep, rest = entry.partition("=")
+        paths = [x.strip() for x in rest.split(",")]
+        if not sep or not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", name) or not all(paths):
+            problems.append(f"seam_groups: '{entry}' must look like <name>=<path>,<path>, e.g. web=web/api.py,web/jobs.py")
+            continue
+        if name in seen_groups:
+            problems.append(f"seam_groups: the group name '{name}' is used twice")
+        seen_groups.add(name)
+        if any(x.startswith("/") or ".." in x.split("/") or x in ("*", "**", "**/*") for x in paths):
+            problems.append(f"seam_groups: '{entry}': each path is a file or glob from the repository root, without a leading / "
+                            "or .., and not everything")
+        elif len(paths) < 2 and "*" not in rest:
+            problems.append(f"seam_groups: '{entry}' names one file; a seam is between files, so name at least two (or a glob)")
     for entry in cfg.get("label_paths") if isinstance(cfg.get("label_paths"), list) else []:
         if not isinstance(entry, str):
             continue
@@ -850,6 +870,13 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
               "and each finding gets one verdict: check (a lint rule, test or CI check would have caught it; name it), "
               "rule (a rule is wrong or missing; it goes to the owner), split (the plan or PR was too large), owner (needs "
               "the owner's decision), or leave (the cost is the work itself; say why). The audit proposes and builds nothing."),
+        *(rule("ROLE-16", "audit",
+               "A seam audit is a fresh, read-only session, started when ledger_tool.py stats says it is due or a "
+               "milestone closes. Its brief is the output of " + ws + "/tools/seam_audit.py brief: each group in "
+               "project_profile.seam_groups read together, four checks only (error and status mapping, state read "
+               "before a mutator, duplicated helpers, comments citing a changed invariant), at most ten findings in "
+               "ledger/audits/seam-<date>.md, no edits.")
+          if cfg["seam_groups"] else []),
     ]
     if contracts:
         roles += rule("ROLE-10", "specify",
@@ -1142,6 +1169,8 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
         f"  lane_mapping_note: {yaml_quote(cfg['lane_mapping_note'])}",
         *([f"  critical_paths: {yaml_list(cfg['critical_paths'])}"] if cfg["critical_paths"] else []),
         *([f"  label_paths: {yaml_list(cfg['label_paths'])}"] if cfg["label_paths"] else []),
+        *([f"  seam_groups: {yaml_list(cfg['seam_groups'])}", f"  seam_audit_every_prs: {int(cfg['seam_audit_every_prs'])}"]
+          if cfg["seam_groups"] else []),
         f"  doc_paths: {yaml_list(cfg['doc_paths'])}",
         f"  workspace_root: {yaml_quote(ws)}",
         f"  state_file: {yaml_quote(ws + '/project-state.yaml')}",
@@ -1703,6 +1732,10 @@ def derive_config(rules_path: Path, state_path: Path | None) -> tuple[dict[str, 
         cfg["critical_paths"] = [str(x) for x in prof["critical_paths"]]
     if isinstance(prof.get("label_paths"), list):
         cfg["label_paths"] = [str(x) for x in prof["label_paths"]]
+    if isinstance(prof.get("seam_groups"), list):
+        cfg["seam_groups"] = [str(x) for x in prof["seam_groups"]]
+    if isinstance(prof.get("seam_audit_every_prs"), int) and not isinstance(prof.get("seam_audit_every_prs"), bool):
+        cfg["seam_audit_every_prs"] = prof["seam_audit_every_prs"]
     if isinstance(prof.get("doc_paths"), list):
         cfg["doc_paths"] = [str(x) for x in prof["doc_paths"]]
 

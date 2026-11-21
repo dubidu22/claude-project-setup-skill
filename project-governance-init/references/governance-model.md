@@ -671,6 +671,25 @@ loop for Claude Code that benchmarks its own agents):
   judgment half is the audit thread, which gives each flag one of five
   verdicts: check, rule, split, owner or leave. It proposes and builds
   nothing, so an audit cannot quietly rewrite the tooling it audits.
+- **Seam audits: files that work together are read together** (`ROLE-16`,
+  only when `seam_groups` is set). A review round reads one PR's diff and a
+  batch audit reads what a batch changed. Neither reads two neighbouring
+  files side by side as they are now, which is where contracts between
+  files break. Every `seam_audit_every_prs` merged PRs (default 15), or
+  when a milestone closes, a fresh read-only session takes the brief from
+  `seam_audit.py brief` and checks four things only, per group: error and
+  status mapping between a module's errors and the handlers that receive
+  them; a caller that reads another module's internal state and then calls
+  a mutator; the same low-level helper written twice in sibling modules;
+  a comment that cites a decision or an issue for an invariant the code no
+  longer keeps. The script does the mechanical part of the last one: it
+  lists every `D-` number and issue number cited in the group and marks a
+  superseded decision, a decision that is not in the log and a closed
+  issue. The report holds at most ten findings, each with a kind, a
+  `ROLE-15` verdict and the lines read; `seam_audit.py check` refuses a
+  report outside that shape. `ledger_tool.py stats` says when the audit is
+  due, counted from the merge entries. A session fresh to the code matters:
+  a thread that reviewed those PRs is anchored by what it approved.
 - **A reading list per role.** Each role extract starts with `start_reading`
   and `leave_unread`. What a thread does not load is the cheapest saving
   there is, and it also keeps a reviewer from being anchored by the
@@ -700,6 +719,10 @@ determined to get around them, and none of them is a security boundary:
 - The self-test proves that a check can fail, on one built-in case. It does
   not prove the check catches every wrong pull request, and it runs without
   the exemptions, so an over-broad exemption is not caught by it.
+- A seam audit's first three checks are a model's judgment. The script
+  fixes the questions, the groups, the size and the shape of the report,
+  and finds the cited decisions; it cannot tell whether a finding is true.
+  A group is only audited if someone named it.
 - `triage` counts leftovers by number, not by content: three entries for a
   PR with three should-fix findings satisfy it whatever they say.
 - A hand-back is recorded by the thread that hands back. A thread that does

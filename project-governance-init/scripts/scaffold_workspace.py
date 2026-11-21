@@ -16,6 +16,7 @@ into the target directory:
       tools/contract_tool.py      contract lint, hand-backs, issue drafts (only with acceptance_contracts: true)
       tools/acceptance-contracts.md  the method a specify thread follows (only with acceptance_contracts: true)
       tools/ledger_tool.py        prints tables and statistics from the ledger entries
+      tools/seam_audit.py         the brief and the report check for seam audits (only with seam_groups)
       roadmap.yaml                ordered milestones (only with acceptance_contracts: true)
       kb/README.md
       kb/decision-log.md          with D-001 recording adoption of the ruleset
@@ -206,7 +207,7 @@ def template_values(cfg: dict[str, Any]) -> tuple[dict[str, str], dict[str, bool
     values["batch_event"] = "the Dispatcher's batch report" if disp else "the end of a batch"
     flags = {"acceptance_contracts": contracts, "dispatcher": disp, "compaction": every > 0,
              "in_repo": in_repo, "escalation": bool(esc), "contracts_in_repo": contracts and in_repo,
-             "runtime_verification": bool(cfg["runtime_verification"])}
+             "runtime_verification": bool(cfg["runtime_verification"]), "seam_audit": bool(cfg["seam_groups"])}
     return values, flags
 
 
@@ -495,6 +496,8 @@ def main() -> int:
         results.append(write(since, "# Merges before this date are not counted by `ledger_tool.py triage`. Do not edit.\n" + day + "\n", False))
     tool_force = args.force or args.refresh
     results.append(write(out / "tools" / "ledger_tool.py", (SCRIPT_DIR / "ledger_tool.py").read_text(encoding="utf-8"), tool_force))
+    if cfg["seam_groups"]:
+        results.append(write(out / "tools" / "seam_audit.py", (SCRIPT_DIR / "seam_audit.py").read_text(encoding="utf-8"), tool_force))
     if flags["acceptance_contracts"]:
         results.append(write(out / "tools" / "contract_tool.py", (SCRIPT_DIR / "contract_tool.py").read_text(encoding="utf-8"), tool_force))
         results.append(write(out / "tools" / "acceptance-contracts.md", CONTRACT_METHOD.read_text(encoding="utf-8"), tool_force))
