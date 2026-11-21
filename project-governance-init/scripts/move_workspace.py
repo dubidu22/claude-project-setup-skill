@@ -79,11 +79,11 @@ HISTORY = ("kb/decision-log.md", "kb/pending-decisions.md", IMPORTED_INSTRUCTION
 # ---- placing the files of a flat download ----------------------------------------------------------------
 
 ROOT_FILES = {"claude-project-rules.yaml", "governance-config.json", "project-state.yaml", "roadmap.yaml"}
-ROLE_FILES = {f"{r}.yaml" for r in ("assist", "audit", "coordinator", "dispatcher", "implementation", "kb", "review", "specify")}
+ROLE_FILES = {f"{r}.yaml" for r in ("advisor", "assist", "audit", "coordinator", "dispatcher", "implementation", "kb", "review", "specify")}
 KB_FILES = {"decision-log.md", "pending-decisions.md", "verification.md"}
 # written fresh by the generator and the scaffold, so a copy from the Project is not needed
 REGENERATED = ROLE_FILES | {"README.md", "contract_tool.py", "ledger_tool.py", "seam_audit.py", "acceptance-contracts.md", "project_instructions.md",
-                           "dispatcher_instructions.md", "contract-template.yaml", "claude-md-snippet.md"}
+                           "dispatcher_instructions.md", "advisor_instructions.md", "contract-template.yaml", "claude-md-snippet.md"}
 PLAN_PATTERNS = (r"plan-.+\.md", r"review-pr\d+-round\d+\.md", r"contract-.+\.ya?ml", r"issues-.+\.md")
 
 

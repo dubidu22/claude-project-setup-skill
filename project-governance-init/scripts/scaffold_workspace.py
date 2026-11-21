@@ -11,6 +11,7 @@ into the target directory:
       claude-md-snippet.md        in-repo workspaces only: the block for the repository's CLAUDE.md that points
                                   a new Claude Code session to its role extract
       dispatcher_instructions.md  starter block for the Dispatcher chat (only with dispatcher: true)
+      advisor_instructions.md     starter block for an Advisor session, with the brief format (only with advisor: true)
       plans/README.md
       plans/contract-template.yaml  acceptance contract template (only with acceptance_contracts: true)
       tools/contract_tool.py      contract lint, hand-backs, issue drafts (only with acceptance_contracts: true)
@@ -63,12 +64,13 @@ CONTRACT_METHOD = SCRIPT_DIR.parent / "references" / "acceptance-contracts.md"
 OPTIONAL_TEMPLATES = {
     "plans/contract-template.yaml": "acceptance_contracts",
     "dispatcher_instructions.md": "dispatcher",
+    "advisor_instructions.md": "advisor",
     "kb/verification.md": "runtime_verification",
     "kb/features/README.md": "runtime_verification",
     "claude-md-snippet.md": "in_repo",
 }
 # Generated from the config and never edited by threads: safe to overwrite on --refresh.
-REFRESHABLE = {"project_instructions.md", "dispatcher_instructions.md", "plans/README.md",
+REFRESHABLE = {"project_instructions.md", "dispatcher_instructions.md", "advisor_instructions.md", "plans/README.md",
                "plans/contract-template.yaml", "kb/README.md", "ledger/README.md", "claude-md-snippet.md"}
 LEFTOVERS = {
     "ledger/implementation.md": "an older ledger table; history only, new entries go to ledger/prs/",
@@ -205,9 +207,11 @@ def template_values(cfg: dict[str, Any]) -> tuple[dict[str, str], dict[str, bool
         ),
     })
     values["batch_event"] = "the Dispatcher's batch report" if disp else "the end of a batch"
+    values["advisor_model"] = cfg["advisor_model"] or cfg["critical_model"]
     flags = {"acceptance_contracts": contracts, "dispatcher": disp, "compaction": every > 0,
              "in_repo": in_repo, "escalation": bool(esc), "contracts_in_repo": contracts and in_repo,
-             "runtime_verification": bool(cfg["runtime_verification"]), "seam_audit": bool(cfg["seam_groups"])}
+             "runtime_verification": bool(cfg["runtime_verification"]), "seam_audit": bool(cfg["seam_groups"]),
+             "advisor": bool(cfg["advisor"])}
     return values, flags
 
 
@@ -343,7 +347,7 @@ def pr_checks_config(cfg: dict[str, Any]) -> dict[str, Any]:
         "locked_label": "lane:core" if {"lane:infra", "lane:core"} <= set(labels) else "",
         "critical_paths": list(cfg["critical_paths"]),
         "doc_paths": list(cfg["doc_paths"]),
-        "governance_paths": [ws + "/**"] if cfg["environment"] == "claude_code" and ws else [],
+        "governance_paths": list(cfg["governance_paths"]) or ([ws + "/**"] if cfg["environment"] == "claude_code" and ws else []),
     }
 
 

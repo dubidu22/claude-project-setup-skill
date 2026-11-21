@@ -29,7 +29,8 @@ def test_skill_metadata():
 
 def test_docs_only_cite_rules_and_flags_that_exist():
     rules = gen.render_rules_yaml(gen.normalize_config({"project_name": "x", "workspace_root": "./g", "model_preset": "economy",
-                                                      "seam_groups": ["web=web/api.py,web/jobs.py"]}))  # ROLE-16 exists only with groups
+                                                      "seam_groups": ["web=web/api.py,web/jobs.py"],
+                                                      "advisor": True}))  # ROLE-16 and ROLE-18 exist only when turned on
     ids = set(re.findall(r"^  - id: (\S+)", rules, re.M))
     docs = [SKILL / n for n in ("SKILL.md", "init.md", "specify.md", "audit.md")] + list((SKILL / "references").glob("*.md"))
     keys = set(gen.default_config()) | {"token_cfg"}
