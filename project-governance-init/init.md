@@ -133,7 +133,12 @@ rule exists to get real decisions, not to block when there is nobody to decide.
    for an in-repo workspace, `critical_paths` (globs that CI labels
    `risk:high`); where new markdown files may be added (`doc_paths`, default
    `docs/**`, any `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`,
-   `.github/**`; everything else needs the plan to name it, `PR-05`); zero telemetry (`no_telemetry`) and, where there is a local
+   `.github/**`; everything else needs the plan to name it, `PR-05`); which
+   files work together closely enough to be read together in a seam audit
+   (`seam_groups`, e.g. `web=web/api.py,web/jobs.py`: ask for the two or
+   three places where one module's errors, state or helpers meet another's;
+   do not guess them from file names, and leave the list empty in a new
+   project until there is code to name); zero telemetry (`no_telemetry`) and, where there is a local
    web UI, `local_ui_loopback_only`; banned licences (default AGPL, SSPL,
    non-commercial, unclear); and the project's own hard rules (layer order,
    determinism, schema compatibility). Phrase each invariant as a testable
@@ -271,7 +276,7 @@ list those switches as their steps in the hand-over.
 | cache lifetime, planned compaction | `cache_ttl_minutes=60`, `coordinator_compact_every_batches=1` (Claude Code only) |
 | acceptance contracts on or off | `acceptance_contracts=true` / `false` |
 | another stack preset | `stack_key=fullstack_web`: replaces lanes, labels, mapping note and checks unless set in the same call |
-| a list | `'ownership_labels=["lane:app","lane:docs"]'`, `'owner_prefs=["..."]'`, `'critical_paths=["src/core/**"]'`, `'doc_paths=["docs/**","**/README.md"]'`, `'label_paths=["lane:cli=src/cli/**"]'` |
+| a list | `'ownership_labels=["lane:app","lane:docs"]'`, `'owner_prefs=["..."]'`, `'critical_paths=["src/core/**"]'`, `'doc_paths=["docs/**","**/README.md"]'`, `'seam_groups=["web=web/api.py,web/jobs.py"]'`, `'label_paths=["lane:cli=src/cli/**"]'` |
 | an invariant with its check | `'custom_invariants=["The schema stays backwards compatible. [check: tests/test_schema_compat.py]"]'`, `licence_check=...`, `telemetry_check=...` |
 | proof by running the product | `runtime_verification=true` / `false` |
 

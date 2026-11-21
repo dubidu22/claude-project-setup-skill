@@ -20,6 +20,7 @@ scaffolded `tools/`), or `./ledger`. This tool only reads. Entries are flat
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
@@ -171,6 +172,31 @@ def flags(prs: list[dict[str, str]], rounds: list[dict[str, str]], reverts: list
     todo, _ = triage(rounds, deferred, since)
     out += [f"flag: untriaged | {line}" for line in todo]
     return out
+
+
+def seam_status(ledger: Path, rounds: list[dict[str, str]]) -> tuple[bool, str] | None:
+    """(due, one line) for the seam audit, or None when the project has no seam groups.
+
+    Reads `seam_groups` and `seam_audit_every_prs` from governance-config.json next to the ledger. Counts
+    merge rounds dated after the newest ledger/audits/seam-<date>.md; nobody keeps the count by hand.
+    """
+    try:
+        cfg = json.loads((ledger.parent / "governance-config.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(cfg, dict) or not cfg.get("seam_groups"):
+        return None
+    every = cfg.get("seam_audit_every_prs")
+    every = every if isinstance(every, int) and not isinstance(every, bool) and every > 0 else 15
+    dates = sorted(m.group(1) for p in (ledger / "audits").glob("seam-*.md")
+                   if (m := re.fullmatch(r"seam-(\d{4}-\d{2}-\d{2})(-\d+)?\.md", p.name))) if (ledger / "audits").is_dir() else []
+    last = dates[-1] if dates else ""
+    merged = len({r.get("pr") for r in rounds if r.get("merged") and r.get("date", "") > last})
+    since = f"since the seam audit of {last}" if last else "and no seam audit has run yet"
+    if merged >= every:
+        return True, (f"{merged} PRs merged {since} (due every {every}): start a fresh read-only session with the output of "
+                      "tools/seam_audit.py brief (ROLE-16)")
+    return False, f"{merged} of {every} PRs merged {since}"
 
 
 def kinds_of(entry: dict[str, str], key: str = "kinds") -> list[str]:
@@ -459,8 +485,11 @@ def main() -> int:
             return 1
         print("Nothing is waiting for a decision." + (f" (Merges before {since} are not counted.)" if since else ""))
         return 0
+    seam = seam_status(ledger, rounds)
     if args.cmd == "flags":
         found = flags(prs, rounds, reverts, overrides, deferred, since)
+        if seam and seam[0]:
+            found.append(f"flag: seam-audit-due | {seam[1]}")
         print("\n".join(found) if found else "No flags.")
         return 0
     if args.cmd == "table":
@@ -468,6 +497,8 @@ def main() -> int:
         return 0
     if args.cmd == "stats":
         print(stats(prs, rounds, reverts, overrides), end="")
+        if seam:
+            print(f"Seam audit: {'DUE, ' if seam[0] else 'not due, '}{seam[1]}.")
         return 0
     found = problems(prs, rounds, reverts, overrides) + [f"deferred/{e['_file']}: {w}" for e in deferred for w in deferred_problems(e)]
     print("\n".join(found) if found else f"{len(prs)} PR entries and {len(rounds)} round entries, no problems.")

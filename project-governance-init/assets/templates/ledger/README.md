@@ -20,6 +20,9 @@ edit the same file. Nobody maintains a table by hand; print one when needed:
 | `overrides/pr-<N>.yaml` | the coordinator, on the owner's word | when the owner lets PR N merge although the gate stops it (`MRG-02`) |
 | `deferred/pr<N>-<k>.yaml` | the coordinator | one per should-fix finding a merged PR left open, or point a thread set aside (`THR-16`) |
 | `audits/batch-<NNN>.md` | the audit thread | after a merged batch (`ROLE-09`, `ROLE-15`) |
+<!-- if:seam_audit -->
+| `audits/seam-<YYYY-MM-DD>.md` | a fresh audit thread | when `stats` says a seam audit is due, or a milestone closes (`ROLE-16`) |
+<!-- endif -->
 
 `prs/pr-<N>.yaml`:
 
@@ -124,6 +127,13 @@ What the numbers are for:
   regressed fix did not remove the cause; the next one goes a step up the
   ladder in `META-03`. A PR that branched before the fix and was not updated
   can show up here too; the reviewer says so in the round report.
+<!-- if:seam_audit -->
+- **Seam audit.** `stats` ends with whether a seam audit is due: it counts
+  merged PRs since the newest `audits/seam-<date>.md`. The session's brief
+  is `python3 tools/seam_audit.py brief`; its report is checked with
+  `python3 tools/seam_audit.py check <report>`. Each finding then becomes
+  an issue or an entry in `deferred/`, so `triage` asks for a decision.
+<!-- endif -->
 - **Audit flags.** `flags` prints one line per thing worth judging: a PR
   with three or more rounds, a thread compacted twice on one PR, a finding
   kind seen in several PRs, a regressed fix, a revert, an override, a waiting

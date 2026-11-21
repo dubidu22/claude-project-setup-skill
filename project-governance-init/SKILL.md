@@ -68,8 +68,8 @@ Shared by all three:
   how the roadmap is kept.
 - `references/audit-checklist.md`: semantic checks and the report format.
 - `scripts/`: `generate_project_rules.py`, `scaffold_workspace.py` and
-  `move_workspace.py` (with `--apply`) write files (init only); `audit_rules.py`, `ledger_tool.py`, `repo_readiness.py`
-  and `contract_tool.py` only read (`pr_checks.py` is copied into the
+  `move_workspace.py` (with `--apply`) write files (init only); `audit_rules.py`, `ledger_tool.py`, `repo_readiness.py`,
+  `seam_audit.py` and `contract_tool.py` only read (`pr_checks.py` is copied into the
   project's repository to run in CI), except `contract_tool.py record-issue`, which notes a created
   issue number (specify only). `contract_tool.py pickup` is the coordinator's
   check before it records a contract. Run the tools; do not read their source.
