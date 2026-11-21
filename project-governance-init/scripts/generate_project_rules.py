@@ -331,6 +331,10 @@ def default_config(project_name: str = "my-project") -> dict[str, Any]:
         "owner_prefs": [],
         "acceptance_contracts": True,
         "dispatcher": True,
+        "advisor": False,
+        "advisor_model": "",
+        "governance_paths": [],
+        "promised_tests_check": "",
         "cache_ttl_minutes": 60,
         "coordinator_compact_every_batches": 1,
         "active_milestones": ["v0.1"],
@@ -415,6 +419,14 @@ def validate_config(cfg: dict[str, Any]) -> None:
         if isinstance(label, str) and not re.fullmatch(r"lane:[a-z0-9_-]+", label):
             problems.append(f"ownership_labels: '{label}' must look like lane:<name> (lower case, digits, - or _)")
     labels = cfg.get("ownership_labels") if isinstance(cfg.get("ownership_labels"), list) else []
+    for glob in cfg.get("governance_paths") if isinstance(cfg.get("governance_paths"), list) else []:
+        if isinstance(glob, str) and (glob.startswith("/") or ".." in glob.split("/") or glob.strip() in ("*", "**", "**/*")):
+            problems.append(f"governance_paths: '{glob}': a glob is a path from the repository root, without a leading / "
+                            "or .., and not everything")
+    if cfg.get("advisor") is True and isinstance(cfg.get("advisor_model"), str) and cfg.get("advisor_model") \
+            and cfg.get("advisor_model") == cfg.get("coordinator_model"):
+        problems.append("advisor_model is the coordinator's model: an advisor on the same model adds a session and no judgment. "
+                        "Use a stronger model for the advisor, or leave advisor off")
     seen_groups: set[str] = set()
     for entry in cfg.get("seam_groups") if isinstance(cfg.get("seam_groups"), list) else []:
         if not isinstance(entry, str):
@@ -890,6 +902,13 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
                   "settings) one step at a time and checks the result where it can. It never has a secret pasted into "
                   "chat: secrets go straight into the service that stores them. When the step is done it tells the "
                   "coordinator the step's title and ends.")
+    if cfg["advisor"]:
+        roles += rule("ROLE-18", "coordinator,advisor",
+                      "The advisor is a fresh, read-only session on the advisor model. The coordinator asks it only about "
+                      "a decision it would otherwise put to the owner, or a real open choice in a critical plan; the brief "
+                      "names the question, the options and the evidence. The advisor answers with one recommendation and "
+                      "its reasons, and decides nothing. The coordinator records the answer in " + ws
+                      + "/kb/pending-decisions.md.")
     roles += rule("ROLE-17", "coordinator",
               "Act on few events: a plan or contract to approve, a verdict or gate that needs you (critical, escalated, "
               "refused), a blocked or question hand-back, " + ("the batch report" if disp else "the end of a batch")
@@ -1022,7 +1041,10 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
     plans = [
         *rule("PLAN-01", "implementation",
               "Every implementation thread writes a numbered plan in " + ws + "/plans/ before writing tests or code. "
-              "Deviating from an approved plan requires a new coordinator D-number."),
+              + ("The plan names every test it promises by its test ID, and the PR body repeats that list under the "
+                 "heading '## Tests promised in the plan'; " + cfg["promised_tests_check"] + " fails the PR when a "
+                 "listed test does not exist. " if cfg["promised_tests_check"] else "")
+              + "Deviating from an approved plan requires a new coordinator D-number."),
         *rule("PLAN-02", "coordinator",
               "Critical work always waits for explicit coordinator plan approval; non-critical work may proceed "
               "immediately when confidence is high."),
@@ -1172,6 +1194,8 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
         *([f"  seam_groups: {yaml_list(cfg['seam_groups'])}", f"  seam_audit_every_prs: {int(cfg['seam_audit_every_prs'])}"]
           if cfg["seam_groups"] else []),
         f"  doc_paths: {yaml_list(cfg['doc_paths'])}",
+        *([f"  governance_paths: {yaml_list(cfg['governance_paths'])}"] if cfg["governance_paths"] else []),
+        *([f"  promised_tests_check: {yaml_quote(cfg['promised_tests_check'])}"] if cfg["promised_tests_check"] else []),
         f"  workspace_root: {yaml_quote(ws)}",
         f"  state_file: {yaml_quote(ws + '/project-state.yaml')}",
         f"  plans_dir: {yaml_quote(ws + '/plans')}",
@@ -1182,6 +1206,7 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
         "execution_profile:",
         "  model_routing:",
         *[f"    {label}: {yaml_quote(cfg[key])}" for key, label, _ in MODEL_SLOTS],
+        *([f"    advisor: {yaml_quote(cfg['advisor_model'] or cfg['critical_model'])}"] if cfg["advisor"] else []),
         "  token_economy:",
         f"    profile_name: {cfg['profile_key']}",
         f"    max_concurrent_lanes: {t['max_concurrent_lanes']}",
@@ -1345,6 +1370,9 @@ def reading_lists(ws: str, contracts: bool) -> dict[str, tuple[list[str], list[s
         "specify": (
             [f"{ws}/roadmap.yaml", f"the contracts in {ws}/plans/", f"{ws}/tools/acceptance-contracts.md"],
             ["product code beyond what a criterion needs", "the ledger"]),
+        "advisor": (
+            ["the brief the coordinator gives you", "the files and decision-log entries the brief names"],
+            ["thread chats", "diffs and code the brief does not name", "the ledger", "the full ruleset (this extract is enough)"]),
         "assist": (
             [f"the hand step named for you in {ws}/project-state.yaml"],
             ["everything else"]),
@@ -1738,6 +1766,10 @@ def derive_config(rules_path: Path, state_path: Path | None) -> tuple[dict[str, 
         cfg["seam_audit_every_prs"] = prof["seam_audit_every_prs"]
     if isinstance(prof.get("doc_paths"), list):
         cfg["doc_paths"] = [str(x) for x in prof["doc_paths"]]
+    if isinstance(prof.get("governance_paths"), list):
+        cfg["governance_paths"] = [str(x) for x in prof["governance_paths"]]
+    if isinstance(prof.get("promised_tests_check"), str):
+        cfg["promised_tests_check"] = prof["promised_tests_check"]
 
     execp = data.get("execution_profile") if isinstance(data.get("execution_profile"), dict) else {}
     routing = execp.get("model_routing") if isinstance(execp.get("model_routing"), dict) else {}
@@ -1787,6 +1819,9 @@ def derive_config(rules_path: Path, state_path: Path | None) -> tuple[dict[str, 
 
     scopes = {s.strip() for r in rules for s in str(r.applies_to).split(",")}
     cfg["dispatcher"] = "dispatcher" in scopes
+    cfg["advisor"] = "advisor" in scopes
+    if cfg["advisor"] and routing.get("advisor"):
+        cfg["advisor_model"] = str(routing["advisor"])
     cfg["acceptance_contracts"] = any(re.search(r"acceptance[- ]contract", r.text, re.I) for r in rules)
     cfg["allow_parallel_release_branch"] = "LANE-04" in by_id
     m = re.search(r"hand steps:\s*(.+?)\.?$", text_of("ROLE-02"))

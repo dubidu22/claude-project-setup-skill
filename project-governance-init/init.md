@@ -88,7 +88,12 @@ rule exists to get real decisions, not to block when there is nobody to decide.
    `generate_project_rules.py --model-presets` (`economy`, `balanced`, `max`) as one decision card with
    your recommendation, then let the owner change any of the six slots:
    coordinator; specify; critical work; routine implementation; routine
-   review, KB and audit; operations (dispatcher, assist). Ask for the names as
+   review, KB and audit; operations (dispatcher, assist). If the owner wants
+   the strongest model for planning and advice but not for routing, offer the
+   advisor: the coordinator one tier lower, `advisor: true`, and
+   `advisor_model` (default: the critical-work model; never the
+   coordinator's own model). The coordinator then asks the advisor about the
+   few decisions `ROLE-18` names (reference file, section 5). Ask for the names as
    the owner's model picker shows them and write them as given; preset names
    carry no version numbers on purpose, so do not invent any. Say the two
    things that matter when picking: the reviewer of critical work should not
@@ -130,7 +135,10 @@ rule exists to get real decisions, not to block when there is nobody to decide.
    every watch, merge go and relay is a turn of the coordinator on its
    whole context, on the coordinator's model: say so, and if the owner keeps
    it off, recommend a coordinator model they are content to pay for at that
-   rate. The audit warns about this (A17).
+   rate. The audit warns about this (A17). For an in-repo workspace, which
+   governance files a PR may touch without a lane label: by default the
+   whole workspace; `governance_paths` narrows that to the globs the owner
+   names (for example to leave the ruleset itself under the lane checks).
 5. **Quality gates and invariants**: what counts as critical here
    (`critical_areas`; the default list is generic, so add the project's own,
    for example "golden/regression files" or "user-file deletion paths") and,
@@ -165,7 +173,10 @@ rule exists to get real decisions, not to block when there is nobody to decide.
    Also ask whether milestones need an owner-approved acceptance contract
    (`acceptance_contracts`, recommend yes; it adds `ROLE-10`, `PLAN-03` to
    `PLAN-05`, `REV-03` and scaffolds the roadmap, the template and
-   `tools/contract_tool.py`).
+   `tools/contract_tool.py`). If the repository has a CI check that compares
+   the tests a plan promises with the tests a PR adds, name it in
+   `promised_tests_check`: `PLAN-01` then asks for the promised tests by ID in
+   the plan and under `## Tests promised in the plan` in the PR body.
 6. **Generate and scaffold** (below).
 
 ## Stage 6: generate, check, scaffold
@@ -280,7 +291,8 @@ list those switches as their steps in the hand-over.
 | cache lifetime, planned compaction | `cache_ttl_minutes=60`, `coordinator_compact_every_batches=1` (Claude Code only) |
 | acceptance contracts on or off | `acceptance_contracts=true` / `false` |
 | another stack preset | `stack_key=fullstack_web`: replaces lanes, labels, mapping note and checks unless set in the same call |
-| a list | `'ownership_labels=["lane:app","lane:docs"]'`, `'owner_prefs=["..."]'`, `'critical_paths=["src/core/**"]'`, `'doc_paths=["docs/**","**/README.md"]'`, `'seam_groups=["web=web/api.py,web/jobs.py"]'`, `'label_paths=["lane:cli=src/cli/**"]'` |
+| a list | `'ownership_labels=["lane:app","lane:docs"]'`, `'owner_prefs=["..."]'`, `'critical_paths=["src/core/**"]'`, `'doc_paths=["docs/**","**/README.md"]'`, `advisor=true`, `'advisor_model=<model>'`,
+   `'governance_paths=["governance/kb/**","governance/plans/**"]'`, `'promised_tests_check=<CI check name>'`, `'seam_groups=["web=web/api.py,web/jobs.py"]'`, `'label_paths=["lane:cli=src/cli/**"]'` |
 | an invariant with its check | `'custom_invariants=["The schema stays backwards compatible. [check: tests/test_schema_compat.py]"]'`, `licence_check=...`, `telemetry_check=...` |
 | proof by running the product | `runtime_verification=true` / `false` |
 

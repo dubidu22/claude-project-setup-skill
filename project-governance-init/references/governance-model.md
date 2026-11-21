@@ -31,6 +31,7 @@ one repo, each with a role and a narrow remit:
 | **coordinator** (lives for the whole project, never replaced) | splits work into lane batches, starts/replaces threads (or hands that to the dispatcher), approves plans, grants merge go, logs D-numbers, is the only writer of the state file; reads ledger entries and PR state instead of relaying messages | writes product code; approves scope changes or acceptance contracts |
 | **dispatcher** (default on) | runs one batch at a time: starts, watches and replaces worker threads, keeps `batch-<NNN>.md` current, reads the ledger entries, grants merge go for PRs the review thread confirmed non-critical | approves plans, critical PRs or anything touching scope; decides criticality; writes ledger entries |
 | **specify** (with acceptance contracts) | in its own chat: interviews the owner about a feature idea or plan change, researches and drafts the acceptance contract, groups work packages, updates the roadmap; shows the owner every criterion and verify step; records approval only on the owner's message that quotes the contract hash; creates issues on the owner's yes | approves anything itself; edits an approved contract; touches rules, state, code or D-numbers |
+| **advisor** (default off) | a fresh, read-only session on a strong model, asked by the coordinator about one decision it would otherwise put to the owner, or a real open choice in a critical plan; answers with one recommendation and its reasons (`ROLE-18`) | decides anything; changes files; starts threads; is asked about routine plans, merges or verdicts |
 | **assist** | walks the owner through one hand step (accounts, hosting, keys, repository settings) in its own thread, checks the result, reports the step done to the coordinator | has a secret pasted into chat; decides anything; writes the state file |
 | **implementation** | reads KB + plan, states in the plan whether the work is critical, writes tests then code inside its lane, opens PRs, writes the PR's ledger entry, answers findings with exact fix lists | merges, pushes to the default branch, force-pushes |
 | **review** | reviews a batch's PRs in rounds, decides in round 1 from the diff whether the PR is critical, writes round reports and round ledger entries, checks CI, squash-merges on go when no must-fix finding is open | authors the PR it reviews |
@@ -195,6 +196,21 @@ strengths:
 | `implementation` | routine implementation | can be cheaper: frozen criteria, verify steps, CI and review catch its misses |
 | `review_kb_audit` | routine review, KB, audit | can be cheaper |
 | `operations` | dispatcher, assist | mechanical work; the cheapest that follows instructions |
+
+**Planner and router on different models.** By default the coordinator is
+the strongest judgment in the project. A project that wants its strongest
+model for judgment only, and not for the turns that route work, can run the
+coordinator one tier lower and turn on the **advisor** (`advisor: true`,
+`advisor_model`, default the critical-work model). The coordinator then asks
+the advisor in a fresh session about the few decisions that need it
+(`ROLE-18`), with a brief of the question, the options and the evidence, and
+records the answer in `kb/pending-decisions.md`. The specify and
+critical-work slots already put the strongest model on planning and hard
+reviews; the advisor covers the ad-hoc decision in between. It is not worth
+having on the coordinator's own model, and the generator refuses that. Put
+together with the dispatcher on the operations model, the strongest model
+then spends its tokens on plans, contracts, critical work and a handful of
+decisions per batch.
 
 Presets (`economy`, `balanced`, `max`) fill the slots and every slot can be
 changed; names carry no version numbers so they do not go stale. A cheaper
