@@ -204,6 +204,7 @@ def template_values(cfg: dict[str, Any]) -> tuple[dict[str, str], dict[str, bool
             "(`REV-01`); must-fix findings are never deferred to issues."
         ),
     })
+    values["batch_event"] = "the Dispatcher's batch report" if disp else "the end of a batch"
     flags = {"acceptance_contracts": contracts, "dispatcher": disp, "compaction": every > 0,
              "in_repo": in_repo, "escalation": bool(esc), "contracts_in_repo": contracts and in_repo,
              "runtime_verification": bool(cfg["runtime_verification"]), "seam_audit": bool(cfg["seam_groups"])}

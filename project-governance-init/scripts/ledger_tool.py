@@ -8,6 +8,7 @@ Read the ledger: one small file per PR and per review round (ledger/README.md).
     python3 ledger_tool.py gate <PR number> [--head SHA]
                                                   # may this PR be merged? exit 0 only if the entries say yes (MRG-01),
                                                   # or the owner's one-off override for exactly this head is recorded
+    python3 ledger_tool.py status                 # what is open now, a few lines, PRs by number (ROLE-17)
     python3 ledger_tool.py triage                 # what was left behind and has no decision yet; exit 1 while anything is
                                                   # open. Run before a new batch is composed (THR-16)
     python3 ledger_tool.py flags                  # one line per thing an audit should judge, from the entries alone (ROLE-15)
@@ -374,6 +375,35 @@ def status_of(pr: str, rounds: list[dict[str, str]]) -> tuple[str, int, str]:
     return f"round {last.get('round')}: {last.get('verdict', '?')}, {num(last.get('must_fix'))} must-fix", len(mine), confirmed
 
 
+def status(prs: list[dict[str, str]], rounds: list[dict[str, str]], deferred: list[dict[str, str]], since: str) -> str:
+    """What is open now, in a few lines: the answer to "what is pending" without a list kept in a chat."""
+    merged = {r.get("pr") for r in rounds if r.get("merged")}
+    lines: list[str] = []
+    for e in sorted((e for e in prs if e.get("pr") not in merged), key=lambda e: num(e.get("pr"))):
+        pr = e.get("pr", "?")
+        mine = sorted((r for r in rounds if r.get("pr") == pr), key=lambda r: num(r.get("round")))
+        if e.get("handback") in OPEN_HANDBACKS:
+            what = f"{e['handback']}: {e.get('recommended', '').strip() or 'no recommendation'}"
+            who = "coordinator"
+        elif not mine:
+            what, who = "in work, no review round yet", e.get("thread", "implementation")
+        else:
+            last = mine[-1]
+            must = num(last.get("must_fix"))
+            ok, _ = _gate(pr, prs, rounds)
+            if ok:
+                what, who = f"round {last.get('round')} {last.get('verdict')}, gate passes", "merge"
+            elif must:
+                what, who = f"round {last.get('round')} {last.get('verdict')}, {must} must-fix", e.get("thread", "implementation")
+            else:
+                what, who = f"round {last.get('round')} {last.get('verdict')}, gate stops", "coordinator"
+        lines.append(f"  #{pr}  {what}  [next: {who}]")
+    todo, _ = triage(rounds, deferred, since)
+    out = [f"Open PRs: {len(lines)}" + (":" if lines else "."), *lines]
+    out.append(f"Leftovers without a decision: {len(todo)}" + (" (ledger_tool.py triage)." if todo else "."))
+    return "\n".join(out) + "\n"
+
+
 def table(prs: list[dict[str, str]], rounds: list[dict[str, str]], reverts: list[dict[str, str]] | None = None) -> str:
     undone = {e.get("pr"): e.get("by", "?") for e in reverts or []}
     lines = ["## PRs", "", "| PR | Opened | Thread | Lane | Labels | Package | Critical (author / reviewer) | Compactions | Rounds | Status |",
@@ -452,7 +482,7 @@ def stats(prs: list[dict[str, str]], rounds: list[dict[str, str]], reverts: list
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Read the per-PR and per-round ledger entries")
-    ap.add_argument("cmd", choices=["table", "stats", "check", "gate", "triage", "flags"])
+    ap.add_argument("cmd", choices=["table", "stats", "check", "gate", "triage", "flags", "status"])
     ap.add_argument("pr", nargs="?", help="PR number (gate only)")
     ap.add_argument("--ledger", type=Path, help="ledger directory (default: ../ledger next to this script, or ./ledger)")
     ap.add_argument("--head", default="", help="gate only: the PR's current head SHA, needed for an owner override when no round is recorded")
@@ -476,6 +506,9 @@ def main() -> int:
         print("\n".join(f"  - {r}" for r in reasons))
         return 0 if ok else 1
     deferred, since = load_deferred(ledger)
+    if args.cmd == "status":
+        print(status(prs, rounds, deferred, since), end="")
+        return 0
     if args.cmd == "triage":
         todo, settled = triage(rounds, deferred, since)
         if settled:

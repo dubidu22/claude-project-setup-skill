@@ -105,6 +105,15 @@ class Rule:
 # Loading: PyYAML when available, line-based fallback otherwise.
 # ----------------------------------------------------------------------------
 
+def model_tier(name: str) -> int:
+    """A rough cost tier from a model name the owner typed: 4 Fable or Mythos, 3 Opus, 2 Sonnet, 1 Haiku, 0 unknown."""
+    n = name.lower()
+    for tier, words in ((4, ("fable", "mythos")), (3, ("opus",)), (2, ("sonnet",)), (1, ("haiku",))):
+        if any(w in n for w in words):
+            return tier
+    return 0
+
+
 def load_yaml_or_none(path: Path) -> dict[str, Any] | None:
     try:
         import yaml  # type: ignore
@@ -405,6 +414,23 @@ def run_checks(data: dict[str, Any], rules: list[Rule], raw_text: str, state_tex
     # --- A05 execution profile sanity ---
     routing = get_path(data, "execution_profile", "model_routing") or {}
     token = get_path(data, "execution_profile", "token_economy") or {}
+
+    # --- A17 per-PR work on the coordinator's model ---
+    if isinstance(routing, dict):
+        scopes = {x.strip() for r in rules for x in str(r.applies_to or "").replace("|", ",").split(",")}
+        lanes_n = to_int(token.get("max_concurrent_lanes")) if isinstance(token, dict) else None
+        coord, ops = str(routing.get("coordinator") or ""), str(routing.get("operations") or "")
+        if "dispatcher" not in scopes and (lanes_n or 0) >= 3:  # one or two lanes may run without one (init.md)
+            f.append(Finding("A17", "WARN", f"no dispatcher while up to {lanes_n} lanes run at once: every watch, merge go and "
+                             f"relay of every PR is a turn of the coordinator on {coord or 'its model'}, on its whole context. "
+                             "Turn the dispatcher on (dispatcher=true) and give the operations slot a cheaper model",
+                             "execution_profile"))
+        tc, to = model_tier(coord), model_tier(ops)
+        if to >= 3 or (tc and to and to >= tc):
+            same = " the same tier as the coordinator," if tc and to >= tc else ""
+            f.append(Finding("A17", "INFO", f"the operations slot ({ops}) is on{same} a top tier: dispatcher watches, merge go "
+                             "and hand steps need no planning model. A Sonnet-class model is enough for them",
+                             "execution_profile"))
     have = set(routing) if isinstance(routing, dict) else set()
     # Rulesets generated before the routing was split carry three keys; both shapes are valid.
     wanted = LEGACY_ROUTING_KEYS if (have & LEGACY_ROUTING_KEYS) - {"coordinator"} else REQUIRED_ROUTING_KEYS
@@ -678,7 +704,7 @@ def render_markdown(path: Path, findings: list[Finding], n_rules: int) -> str:
     lines.append("Codes: A01 header, A02 ids, A03 scopes, A04 lanes/labels, A05 execution profile, "
                  "A06 state leakage, A07 dead history, A08 token bloat, A09 contradiction patterns, A10 state file, "
                  "A11 optional roles, A12 per-role extracts, A13 authority order, A14 comparison with the default branch, "
-                 "A15 invariants without a check, A16 checks never seen to fail.")
+                 "A15 invariants without a check, A16 checks never seen to fail, A17 per-PR work on the coordinator's model.")
     return "\n".join(lines) + "\n"
 
 
