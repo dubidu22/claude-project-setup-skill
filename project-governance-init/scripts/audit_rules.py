@@ -415,6 +415,18 @@ def run_checks(data: dict[str, Any], rules: list[Rule], raw_text: str, state_tex
     routing = get_path(data, "execution_profile", "model_routing") or {}
     token = get_path(data, "execution_profile", "token_economy") or {}
 
+    # --- A18 a dispatcher that cannot start its workers ---
+    if isinstance(routing, dict) and any(r.applies_to and "dispatcher" in str(r.applies_to) for r in rules if r.section == "roles"):
+        disp_model = str(routing.get("dispatcher") or routing.get("operations") or "")
+        workers = {str(routing.get(k)) for k in ("critical_work", "implementation", "review_kb_audit") if routing.get(k)}
+        stronger = sorted(w for w in workers if model_tier(disp_model) and model_tier(w) > model_tier(disp_model))
+        if stronger:
+            where = "its own slot" if routing.get("dispatcher") else "the operations slot, since the ruleset names no dispatcher model"
+            f.append(Finding("A18", "WARN", f"the dispatcher runs on {disp_model} ({where}) but has to start threads on "
+                             f"{', '.join(stronger)}. A session starts sessions only on its own model or a cheaper one, so the "
+                             "owner ends up starting them by hand. Regenerate: the dispatcher then takes the strongest worker model",
+                             "execution_profile"))
+
     # --- A17 per-PR work on the coordinator's model ---
     if isinstance(routing, dict):
         scopes = {x.strip() for r in rules for x in str(r.applies_to or "").replace("|", ",").split(",")}
@@ -423,13 +435,14 @@ def run_checks(data: dict[str, Any], rules: list[Rule], raw_text: str, state_tex
         if "dispatcher" not in scopes and (lanes_n or 0) >= 3:  # one or two lanes may run without one (init.md)
             f.append(Finding("A17", "WARN", f"no dispatcher while up to {lanes_n} lanes run at once: every watch, merge go and "
                              f"relay of every PR is a turn of the coordinator on {coord or 'its model'}, on its whole context. "
-                             "Turn the dispatcher on (dispatcher=true) and give the operations slot a cheaper model",
+                             "Turn the dispatcher on (dispatcher=true); it runs on the strongest worker model, so it can start "
+                             "the workers itself, and its context lasts one batch",
                              "execution_profile"))
         tc, to = model_tier(coord), model_tier(ops)
         if to >= 3 or (tc and to and to >= tc):
             same = " the same tier as the coordinator," if tc and to >= tc else ""
-            f.append(Finding("A17", "INFO", f"the operations slot ({ops}) is on{same} a top tier: dispatcher watches, merge go "
-                             "and hand steps need no planning model. A Sonnet-class model is enough for them",
+            f.append(Finding("A17", "INFO", f"the operations slot ({ops}) is on{same} a top tier: it runs only assist threads "
+                             "(one hand step with the owner), which need no planning model. A Sonnet-class model is enough",
                              "execution_profile"))
     have = set(routing) if isinstance(routing, dict) else set()
     # Rulesets generated before the routing was split carry three keys; both shapes are valid.
@@ -704,7 +717,7 @@ def render_markdown(path: Path, findings: list[Finding], n_rules: int) -> str:
     lines.append("Codes: A01 header, A02 ids, A03 scopes, A04 lanes/labels, A05 execution profile, "
                  "A06 state leakage, A07 dead history, A08 token bloat, A09 contradiction patterns, A10 state file, "
                  "A11 optional roles, A12 per-role extracts, A13 authority order, A14 comparison with the default branch, "
-                 "A15 invariants without a check, A16 checks never seen to fail, A17 per-PR work on the coordinator's model.")
+                 "A15 invariants without a check, A16 checks never seen to fail, A17 per-PR work on the coordinator's model, A18 a dispatcher that cannot start its workers.")
     return "\n".join(lines) + "\n"
 
 
