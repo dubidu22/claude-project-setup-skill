@@ -209,8 +209,28 @@ MODEL_SLOTS = (
     ("critical_model", "critical_work", "Critical work: implementation and review of critical PRs, escalations"),
     ("implementation_model", "implementation", "Routine implementation"),
     ("review_model", "review_kb_audit", "Routine review, KB and audit threads"),
-    ("ops_model", "operations", "Dispatcher and assist threads"),
+    ("ops_model", "operations", "Assist threads (one hand step with the owner)"),
 )
+# A session starts other sessions only on its own model or a cheaper one (observed in a live project: the
+# app ignored the model when a Sonnet dispatcher started Opus workers). So the dispatcher runs on the
+# strongest model among the threads it starts, never on the cheap operations slot.
+DISPATCHER_STARTS = ("critical_model", "implementation_model", "review_model")
+
+
+def model_tier(name: str) -> int:
+    """A rough tier from a model name the owner typed: 4 Fable or Mythos, 3 Opus, 2 Sonnet, 1 Haiku, 0 unknown."""
+    n = str(name).lower()
+    for tier, words in ((4, ("fable", "mythos")), (3, ("opus",)), (2, ("sonnet",)), (1, ("haiku",))):
+        if any(w in n for w in words):
+            return tier
+    return 0
+
+
+def dispatcher_model(cfg: dict[str, Any]) -> str:
+    """The dispatcher's model: the one set, or the strongest of the models it starts (critical work on a tie)."""
+    if cfg.get("dispatcher_model"):
+        return str(cfg["dispatcher_model"])
+    return max((cfg[k] for k in DISPATCHER_STARTS), key=lambda m: (model_tier(m), m == cfg["critical_model"]))
 MODEL_PRESETS: dict[str, dict[str, str]] = {
     "economy": {
         "coordinator_model": "Opus",
@@ -333,6 +353,7 @@ def default_config(project_name: str = "my-project") -> dict[str, Any]:
         "dispatcher": True,
         "advisor": False,
         "advisor_model": "",
+        "dispatcher_model": "",
         "governance_paths": [],
         "promised_tests_check": "",
         "cache_ttl_minutes": 60,
@@ -419,6 +440,15 @@ def validate_config(cfg: dict[str, Any]) -> None:
         if isinstance(label, str) and not re.fullmatch(r"lane:[a-z0-9_-]+", label):
             problems.append(f"ownership_labels: '{label}' must look like lane:<name> (lower case, digits, - or _)")
     labels = cfg.get("ownership_labels") if isinstance(cfg.get("ownership_labels"), list) else []
+    if cfg.get("dispatcher") is True and isinstance(cfg.get("dispatcher_model"), str) and cfg.get("dispatcher_model"):
+        mine = model_tier(cfg["dispatcher_model"])
+        stronger = [str(cfg.get(k)) for k in DISPATCHER_STARTS
+                    if isinstance(cfg.get(k), str) and mine and model_tier(cfg[k]) > mine]
+        if stronger:
+            problems.append(f"dispatcher_model '{cfg['dispatcher_model']}' is weaker than {', '.join(sorted(set(stronger)))}, which "
+                            "it has to start. A session starts sessions only on its own model or a cheaper one, so the owner "
+                            "would have to start those threads by hand. Leave dispatcher_model empty (it then takes the "
+                            "strongest worker model) or name a model at least that strong")
     for glob in cfg.get("governance_paths") if isinstance(cfg.get("governance_paths"), list) else []:
         if isinstance(glob, str) and (glob.startswith("/") or ".." in glob.split("/") or glob.strip() in ("*", "**", "**/*")):
             problems.append(f"governance_paths: '{glob}': a glob is a path from the repository root, without a leading / "
@@ -1033,8 +1063,9 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
         *rule("THR-16", "coordinator",
               "Before composing a batch, run " + ws + "/tools/ledger_tool.py triage. Every should-fix finding a merged "
               "PR left open, and every point a thread set aside, is one entry in " + ws + "/ledger/deferred/ that you "
-              "write from the round report, with a decision: planned (the issue), postponed (reason and until when) or "
-              "dropped (the owner's word and the reason). No batch starts while triage reports an open item."),
+              "write from the round report, with a decision: fixed (the commit), planned (the issue), postponed "
+              "(reason and until when) or dropped (the owner's word and the reason). No batch starts while triage "
+              "reports an open item."),
     ]
 
     # ---- plans and criticality ---------------------------------------------
@@ -1206,6 +1237,7 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
         "execution_profile:",
         "  model_routing:",
         *[f"    {label}: {yaml_quote(cfg[key])}" for key, label, _ in MODEL_SLOTS],
+        *([f"    dispatcher: {yaml_quote(dispatcher_model(cfg))}"] if cfg["dispatcher"] else []),
         *([f"    advisor: {yaml_quote(cfg['advisor_model'] or cfg['critical_model'])}"] if cfg["advisor"] else []),
         "  token_economy:",
         f"    profile_name: {cfg['profile_key']}",
@@ -1820,6 +1852,8 @@ def derive_config(rules_path: Path, state_path: Path | None) -> tuple[dict[str, 
     scopes = {s.strip() for r in rules for s in str(r.applies_to).split(",")}
     cfg["dispatcher"] = "dispatcher" in scopes
     cfg["advisor"] = "advisor" in scopes
+    if cfg["dispatcher"] and routing.get("dispatcher"):
+        cfg["dispatcher_model"] = str(routing["dispatcher"])
     if cfg["advisor"] and routing.get("advisor"):
         cfg["advisor_model"] = str(routing["advisor"])
     cfg["acceptance_contracts"] = any(re.search(r"acceptance[- ]contract", r.text, re.I) for r in rules)

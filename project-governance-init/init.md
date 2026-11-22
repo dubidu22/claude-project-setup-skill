@@ -88,7 +88,12 @@ rule exists to get real decisions, not to block when there is nobody to decide.
    `generate_project_rules.py --model-presets` (`economy`, `balanced`, `max`) as one decision card with
    your recommendation, then let the owner change any of the six slots:
    coordinator; specify; critical work; routine implementation; routine
-   review, KB and audit; operations (dispatcher, assist). If the owner wants
+   review, KB and audit; operations (assist). The dispatcher has no slot of
+   its own to pick: it runs on the strongest of the models it starts
+   (critical work, implementation, review), because a session can start
+   sessions only on its own model or a cheaper one. A cheaper dispatcher
+   would leave the owner starting every worker by hand; `dispatcher_model`
+   can name a stronger model, never a weaker one. If the owner wants
    the strongest model for planning and advice but not for routing, offer the
    advisor: the coordinator one tier lower, `advisor: true`, and
    `advisor_model` (default: the critical-work model; never the
@@ -338,7 +343,8 @@ Other keys: `--dump-schema` lists them; set them the same way.
      coordinator model in the coordinator chat, a default model if they want
      one); do not make it for them.
    - Dispatcher turned on: do it at the start of a batch, not in the middle
-     of one. Open a dispatcher chat on the operations model with
+     of one. Open a dispatcher chat on the dispatcher's model (the
+     `dispatcher` line in `execution_profile.model_routing`) with
      `dispatcher_instructions.md`, and start the coordinator fresh: its old
      chat is full of the per-PR traffic the dispatcher now takes. Turned off:
      close it after its batch.

@@ -195,7 +195,17 @@ strengths:
 | `critical_work` | implementation and review of critical PRs, escalations | strong; a critical reviewer is never weaker than the author |
 | `implementation` | routine implementation | can be cheaper: frozen criteria, verify steps, CI and review catch its misses |
 | `review_kb_audit` | routine review, KB, audit | can be cheaper |
-| `operations` | dispatcher, assist | mechanical work; the cheapest that follows instructions |
+| `operations` | assist | mechanical work; the cheapest that follows instructions |
+
+The **dispatcher** has no slot to choose. It runs on the strongest model among
+the threads it starts (critical work, implementation, review), shown as the
+`dispatcher` line in `model_routing`, because a session can start sessions
+only on its own model or a cheaper one. This was found in a live project: a
+Sonnet dispatcher could not start Opus workers, and the owner had to paste a
+starter block for each. A dispatcher on the workers' model still saves: its
+context lasts one batch, while the coordinator's lasts the project.
+`dispatcher_model` may name a stronger model; the generator refuses a weaker
+one and the audit flags an older ruleset where it is weaker (A18).
 
 **Planner and router on different models.** By default the coordinator is
 the strongest judgment in the project. A project that wants its strongest
@@ -208,7 +218,7 @@ records the answer in `kb/pending-decisions.md`. The specify and
 critical-work slots already put the strongest model on planning and hard
 reviews; the advisor covers the ad-hoc decision in between. It is not worth
 having on the coordinator's own model, and the generator refuses that. Put
-together with the dispatcher on the operations model, the strongest model
+together with the dispatcher on the workers' model, the strongest model
 then spends its tokens on plans, contracts, critical work and a handful of
 decisions per batch.
 
@@ -356,8 +366,8 @@ batch. In an excerpt from a running project (about ten coordinator turns
 for two merges, a plan approval and a review verdict), the turns came from
 background commands the coordinator had started itself, from relaying merge
 go and merge recorded as separate turns, and from repeating the same list
-of open items in six replies. Hence, in this order: the dispatcher on a
-cheaper model takes all per-PR traffic (`ROLE-11`); the coordinator acts on
+of open items in six replies. Hence, in this order: the dispatcher, on the
+workers' model so it can start them, takes all per-PR traffic (`ROLE-11`); the coordinator acts on
 the few events of `ROLE-17` and does no hands-on work (`ROLE-05`); the thread
 that merges also watches the run on the default branch (`ROLE-07`); and
 what is open is printed by `ledger_tool.py status`, not carried in chat. The

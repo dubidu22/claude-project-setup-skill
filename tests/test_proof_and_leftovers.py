@@ -306,7 +306,7 @@ def test_triage_refuses_until_every_leftover_has_a_decision(led):
     ("dropped", 'reason: "The dialog is replaced in the next release"\n', "the owner's call"),
     ("dropped", 'reason: "The dialog is replaced in the next release"\nby: coordinator\n', "the owner's call"),
     ("dropped", 'reason: "no"\nby: owner\n', "says why in `reason`"),
-    ("later", "", "`decision` must be one of open, planned, postponed, dropped"),
+    ("later", "", "`decision` must be one of open, fixed, planned, postponed, dropped"),
 ])
 def test_a_decision_without_its_particulars_does_not_settle_anything(led, decision, extra, word):
     put(led, "deferred", "pr12-1", deferred(12, decision, extra))
