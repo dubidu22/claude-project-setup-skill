@@ -26,12 +26,12 @@
 9. **Merge.** The owner approves every plan and merges every PR. The lead never merges.
 {{/if}}
 {{#if guided}}
-9. **Merge.** The lead squash-merges a PR that passed review with green CI. A critical PR waits for the owner: the owner approves its plan and merges it.
+9. **Merge.** The lead squash-merges a PR that passed review with green CI. A critical PR waits for the owner: the owner approves its plan and merges it. A hook stops a merge call on such a PR.
 {{/if}}
 {{#if autonomous}}
-9. **Merge.** The lead squash-merges every PR that passed review with green CI, critical ones included. The owner decides scope only.
+9. **Merge.** The lead squash-merges every PR that passed review with green CI, critical ones included, except a PR that changes {{rule_list}}: those rules are the owner's to merge, and a hook stops a merge call on them. The owner decides scope.
 {{/if}}
-10. **Decisions** that outlast a PR are appended to `docs/decisions.md` in that PR, one dated line each.
+10. **Decisions** that outlast a PR are appended to `docs/decisions.md` in that PR, one dated line each. **Comments** say why the code is as it is, never what it does or what changed. Create no file the issue does not ask for (no summary or notes files): report in the PR body.
 {{#if one_worker}}
 11. **One worker at a time.**
 {{/if}}

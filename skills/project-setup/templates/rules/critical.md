@@ -17,7 +17,7 @@ You are working on a file that makes a PR **critical**. For this PR:
 - The owner merges. The lead does not, even with a passing review.
 {{/if}}
 {{#if autonomous}}
-- The lead may merge after a passing review and green CI.
+- The lead may merge after a passing review and green CI, unless the PR changes {{rule_list}}: the owner merges those.
 {{/if}}
 - Keep it small: a critical change does not share a PR with unrelated work.
 

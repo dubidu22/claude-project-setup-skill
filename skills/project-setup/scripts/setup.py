@@ -53,6 +53,10 @@ MANIFESTS = ["pyproject.toml", "requirements*.txt", "uv.lock", "package.json", "
              "go.mod", "Gemfile", "pom.xml", "build.gradle*", "THIRD_PARTY_LICENSES.md"]
 DENY = ["Bash(git push --force*)", "Bash(git push -f *)", "Bash(git push * --force*)"]
 ASK_MERGE = ["Bash(gh pr merge*)", "mcp__github__merge_pull_request"]
+RULE_PATHS = [".claude/**", "CLAUDE.md"]  # the owner merges changes to the rules at every autonomy level
+GUARD = ".claude/hooks/owner-merge-guard.py"
+GUARD_HOOK = {"matcher": "Bash|mcp__github__merge_pull_request",
+              "hooks": [{"type": "command", "command": f'python3 "$CLAUDE_PROJECT_DIR/{GUARD}"'}]}
 LABELER_SHA = "8558fd74291d67161a8a78ce36a881fa63b766a9"  # actions/labeler v5.0.0 (MIT)
 
 
@@ -165,6 +169,10 @@ def context(cfg: dict) -> dict:
         "manifests_yaml": yaml_list(MANIFESTS),
         "refused_list": ", ".join(cfg["refused_licences"]),
         "lanes_table": "\n".join(f"| `lane:{n}` | {code(g)} |" for n, g in lanes.items()),
+        "rule_list": code(RULE_PATHS),
+        # what the lead may not merge: the rules always, every critical path when guided
+        "owner_globs_json": json.dumps(list(dict.fromkeys(
+            RULE_PATHS + (cfg["critical_paths"] if cfg["autonomy"] == "guided" else [])))),
     }
 
 
@@ -191,6 +199,7 @@ def desired(repo: Path, cfg: dict) -> dict[str, str | None]:
         ".claude/rules/critical.md": tpl("rules/critical.md"),
         ".claude/skills/specify/SKILL.md": tpl("skills/specify/SKILL.md"),
         ".claude/rules/licences.md": tpl("rules/licences.md") if cfg["licence_gate"] else None,
+        GUARD: tpl("hooks/owner-merge-guard.py") if cfg["autonomy"] != "supervised" else None,
         ".github/labeler.yml": labeler_config(cfg) if cfg["label_workflow"] else None,
         ".github/workflows/labels.yml": (
             fill((TEMPLATES / "github/labels-workflow.yml").read_text(encoding="utf-8"),
@@ -239,6 +248,14 @@ def merge_settings(existing: str | None, cfg: dict) -> str:
             perms[key] = kept + rules
         else:
             perms.pop(key, None)
+    hooks = settings.setdefault("hooks", {})  # other hooks are kept; ours is found by the guard's path
+    pre = [h for h in hooks.get("PreToolUse", []) if GUARD not in json.dumps(h)]
+    pre += [GUARD_HOOK] if cfg["autonomy"] != "supervised" else []
+    hooks["PreToolUse"] = pre
+    if not pre:
+        del hooks["PreToolUse"]
+    if not hooks:
+        del settings["hooks"]
     return json.dumps(settings, indent=2) + "\n"
 
 
@@ -281,6 +298,8 @@ def cmd_render(repo: Path, dry_run: bool) -> int:
     print("\nBy hand, once (the files above only ask; GitHub enforces):")
     print(f"  Protect `{cfg['default_branch']}` on GitHub: require a pull request"
           + (" and passing checks" if cfg["checks"] else "") + ", block force pushes.")
+    if cfg["reviewer_model"] != "inherit":  # sessions could not start stronger sessions; untested for subagents
+        print(f"  Start the lead session on `{cfg['reviewer_model']}` or a stronger model.")
     for line in findings(repo, cfg):
         print(f"  note: {line}")
     return 0

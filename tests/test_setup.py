@@ -284,3 +284,98 @@ def test_plugin_manifests_agree():
     plugin = json.loads((ROOT / ".claude-plugin/plugin.json").read_text())
     market = json.loads((ROOT / ".claude-plugin/marketplace.json").read_text())
     assert plugin["name"] == market["plugins"][0]["name"] == "project-setup"
+
+
+# ---- the owner-merge guard (who may merge is enforced, not only written down)
+
+def guard_run(repo, payload, files=None, gh_fails=False, tmp=None):
+    """Run the rendered guard with a fake `gh` that lists `files` as the PR's changed files."""
+    bin_dir = repo / "fakebin"
+    bin_dir.mkdir(exist_ok=True)
+    gh = bin_dir / "gh"
+    body = "exit 1" if gh_fails else "printf '%s\\n' " + " ".join(f"'{f}'" for f in (files or []))
+    gh.write_text(f"#!/bin/sh\necho \"$@\" >> '{bin_dir}/calls'\n{body}\n")
+    gh.chmod(0o755)
+    import os
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"}
+    res = subprocess.run(["python3", str(repo / setup.GUARD)], input=json.dumps(payload), capture_output=True, text=True, env=env)
+    calls = (bin_dir / "calls").read_text() if (bin_dir / "calls").exists() else ""
+    return res, calls
+
+
+def bash(command):
+    return {"tool_name": "Bash", "tool_input": {"command": command}}
+
+
+def test_guard_and_hook_follow_autonomy(repo):
+    render(repo, autonomy="supervised")
+    assert not (repo / setup.GUARD).exists() and "hooks" not in json.loads(read(repo, ".claude/settings.json"))
+    render(repo, autonomy="guided", critical_paths=["src/app/core/**"])
+    guard = read(repo, setup.GUARD)
+    assert 'OWNER_ONLY = [".claude/**", "CLAUDE.md", "src/app/core/**"]' in guard and "{{" not in guard
+    hooks = json.loads(read(repo, ".claude/settings.json"))["hooks"]["PreToolUse"]
+    assert hooks == [setup.GUARD_HOOK]
+    render(repo, autonomy="autonomous", critical_paths=["src/app/core/**"])
+    assert 'OWNER_ONLY = [".claude/**", "CLAUDE.md"]' in read(repo, setup.GUARD)
+    render(repo, autonomy="supervised")
+    assert not (repo / setup.GUARD).exists()
+
+
+def test_other_hooks_are_kept(repo):
+    (repo / ".claude").mkdir(exist_ok=True)
+    mine = {"matcher": "Write", "hooks": [{"type": "command", "command": "echo mine"}]}
+    (repo / ".claude/settings.json").write_text(json.dumps({"hooks": {"PreToolUse": [mine], "Stop": [mine]}}))
+    render(repo, autonomy="guided")
+    hooks = json.loads(read(repo, ".claude/settings.json"))["hooks"]
+    assert hooks["PreToolUse"] == [mine, setup.GUARD_HOOK] and hooks["Stop"] == [mine]
+    render(repo, autonomy="supervised")
+    assert json.loads(read(repo, ".claude/settings.json"))["hooks"] == {"PreToolUse": [mine], "Stop": [mine]}
+    render(repo, autonomy="guided")
+    render(repo, autonomy="guided")  # rendering twice adds the guard once
+    assert json.loads(read(repo, ".claude/settings.json"))["hooks"]["PreToolUse"] == [mine, setup.GUARD_HOOK]
+
+
+@pytest.mark.parametrize("payload, files, code", [
+    (bash("gh pr merge 12 --squash"), [".claude/agents/lead.md", "src/a.py"], 2),
+    (bash("gh pr merge 12 --squash"), ["src/app/web/b.py"], 0),
+    (bash("gh pr merge 12 --squash"), ["src/app/core/a.py"], 2),          # guided: a critical path
+    (bash("cd repo && gh pr merge --squash"), ["CLAUDE.md"], 2),          # current branch, after other commands
+    (bash("gh api -X PUT repos/o/r/pulls/12/merge"), ["CLAUDE.md"], 2),
+    ({"tool_name": "mcp__github__merge_pull_request", "tool_input": {"pull_number": 12}}, ["CLAUDE.md"], 2),
+    ({"tool_name": "mcp__github__merge_pull_request", "tool_input": {"pull_number": 12}}, ["README.md"], 0),
+])
+def test_guard_blocks_merges_of_owner_only_files(repo, payload, files, code):
+    render(repo, autonomy="guided", critical_paths=["src/app/core/**"])
+    res, calls = guard_run(repo, payload, files)
+    assert res.returncode == code, res.stderr
+    assert "pr view" in calls
+    if code:
+        assert "only the owner merges" in res.stderr and "tell the owner it is ready" in res.stderr
+
+
+def test_guard_ignores_other_commands_and_fails_closed(repo):
+    render(repo, autonomy="autonomous")
+    res, calls = guard_run(repo, bash("git status && pytest -q"), ["CLAUDE.md"])
+    assert res.returncode == 0 and calls == ""                            # no merge: gh is not even asked
+    res, _ = guard_run(repo, bash("gh pr merge 12"), ["src/app/core/a.py"])
+    assert res.returncode == 0                                            # autonomous: critical code may be merged
+    res, _ = guard_run(repo, bash("gh pr merge 12"), gh_fails=True)
+    assert res.returncode == 2 and "Could not read this PR's files" in res.stderr
+
+
+def test_rules_text_names_the_exceptions_and_the_comment_rule(repo):
+    render(repo, autonomy="autonomous")
+    claude = read(repo, "CLAUDE.md")
+    assert "except a PR that changes `.claude/**`, `CLAUDE.md`" in claude and "a hook stops a merge call" in claude
+    assert "unless the PR changes `.claude/**`, `CLAUDE.md`: tell the owner" in read(repo, ".claude/agents/lead.md")
+    assert "unless the PR changes `.claude/**`, `CLAUDE.md`: the owner merges those" in read(repo, ".claude/rules/critical.md")
+    assert "**Comments** say why the code is as it is" in claude and "no summary or notes files" in claude
+    render(repo, autonomy="guided")
+    assert "A hook stops a merge call on such a PR" in read(repo, "CLAUDE.md")
+
+
+def test_render_names_the_lead_model(repo, capsys):
+    render(repo, economy="balanced")
+    assert "Start the lead session on `opus` or a stronger model" in capsys.readouterr().out
+    render(repo, economy="thorough")
+    assert "Start the lead session" not in capsys.readouterr().out
