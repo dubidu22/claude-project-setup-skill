@@ -17,7 +17,10 @@ import sys
 
 OWNER_ONLY = {{owner_globs_json}}
 DEFAULT_BRANCH = "{{default_branch}}"
-SEPARATORS = {"&&", "||", ";", "|", "&", "(", ")"}
+OPERATORS = "();<>|&\n"  # a newline ends a command, as in the shell
+# words that can stand before the program of a simple command
+PREFIXES = {"env", "time", "timeout", "command", "exec", "nohup", "if", "then", "else", "elif", "do", "while", "until",
+            "!", "{"}
 # gh flags that take a value, so the value is not mistaken for the PR
 VALUE_FLAGS = {"-R", "--repo", "-b", "--body", "-F", "--body-file", "-t", "--subject", "-A", "--author-email",
                "--match-head-commit", "-X", "--method", "-f", "--raw-field", "--field", "-H", "--header", "-q", "--jq"}
@@ -32,14 +35,15 @@ def matches(glob, path):
 def simple_commands(command):
     """The shell command split into simple commands, each a list of words; None if it cannot be parsed."""
     try:
-        lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+        lexer = shlex.shlex(command.replace("\\\n", " "), posix=True, punctuation_chars=OPERATORS)
+        lexer.whitespace = " \t\r"  # not the newline: it separates commands
         lexer.whitespace_split = True
         words = list(lexer)
     except ValueError:
         return None
     out, cur = [], []
     for w in words:
-        if w in SEPARATORS or w == "\n":
+        if w and set(w) <= set(OPERATORS):  # an operator (&&, ;, a newline, a redirection) ends the command
             out.append(cur)
             cur = []
         else:
@@ -50,7 +54,9 @@ def simple_commands(command):
 def gh_merge(words):
     """For one simple command: None if it is no merge, else (pr or "", "owner/repo" or "", reason if unreadable)."""
     env_repo = ""
-    while words and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0]):
+    while words and (words[0] in PREFIXES or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0])
+                     or (words[0].startswith("-") and words[0] != "-")  # env -i, time -p
+                     or re.fullmatch(r"\d+(\.\d+)?[smhd]?", words[0])):  # timeout 60
         if words[0].startswith("GH_REPO="):
             env_repo = words[0].split("=", 1)[1]
         words = words[1:]
@@ -83,7 +89,8 @@ def gh_merge(words):
 def merge_target(tool, args):
     """(pr, repo, reason) for a merge call, or None."""
     if tool.startswith("mcp__"):
-        if "github" not in tool.lower() or "merge" not in tool.lower():
+        name = tool.lower()
+        if "github" not in name or "merge" not in name or "disable" in name:  # turning auto-merge off merges nothing
             return None
         pr = args.get("pullNumber") or args.get("pull_number") or args.get("number") or ""
         repo = f"{args['owner']}/{args['repo']}" if args.get("owner") and args.get("repo") else ""
@@ -122,7 +129,8 @@ def pr_files(pr, repo):
         return None
     if run(["git", "fetch", "-q", "origin", f"pull/{pr}/head", DEFAULT_BRANCH]) is None:
         return None
-    out = run(["git", "diff", "--name-only", f"origin/{DEFAULT_BRANCH}...FETCH_HEAD"])  # FETCH_HEAD: the PR, fetched first
+    # FETCH_HEAD is the PR, fetched first; --no-renames lists a moved file under its old path too
+    out = run(["git", "diff", "--name-only", "--no-renames", f"origin/{DEFAULT_BRANCH}...FETCH_HEAD"])
     return out.splitlines() if out is not None else None
 
 

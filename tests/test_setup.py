@@ -496,3 +496,67 @@ def test_skill_states_the_model_note_as_a_precaution():
     skill = (ROOT / "skills/project-setup/SKILL.md").read_text()
     assert "As a precaution, start the lead on at least `reviewer_model`" in skill and "untested" in skill
     assert "must run on a model at least as strong" not in skill
+
+
+# ---- second review of PR #23: multi-line commands, prefix words, renames, auto-merge off
+
+@pytest.mark.parametrize("command", [
+    "gh pr checks 13\ngh pr merge 13 --squash",                      # a merge on the second line
+    "gh pr checks 13 &&\ngh pr merge 13",
+    "gh pr merge 13 \\\n  --squash",                                  # a continued line
+    "env GH_PAGER=cat gh pr merge 13",
+    "env -i gh pr merge 13",
+    "time gh pr merge 13",
+    "timeout 60 gh pr merge 13",
+    "command gh pr merge 13",
+    "if gh pr checks 13; then gh pr merge 13; fi",
+    "while true; do gh pr merge 13 && break; done",
+    "! gh pr merge 13",
+    "{ gh pr merge 13; }",
+    "gh pr merge 13 > merge.log 2>&1",
+])
+def test_guard_sees_merges_in_multi_line_and_prefixed_commands(repo, command):
+    render(repo, autonomy="guided")
+    res, calls = guard_run(repo, bash(command), ["CLAUDE.md"])
+    assert res.returncode == 2 and "pr view 13" in calls, (command, res.stderr)
+
+
+@pytest.mark.parametrize("command", [
+    'git commit -m "first line\ngh pr merge 13"',                    # a newline inside quotes is not a command
+    "echo 'gh pr checks 13\ngh pr merge 13'",
+    "# gh pr merge 13",
+    "time pytest -q",
+    "env GH_PAGER=cat gh pr view 13",
+])
+def test_guard_still_ignores_mentions_across_lines(repo, command):
+    render(repo, autonomy="guided")
+    res, calls = guard_run(repo, bash(command), ["CLAUDE.md"])
+    assert res.returncode == 0 and calls == "", (command, res.stderr)
+
+
+def test_turning_auto_merge_off_is_not_a_merge(repo):
+    render(repo, autonomy="guided")
+    payload = {"tool_name": "mcp__github__disable_pr_auto_merge", "tool_input": {"owner": "o", "repo": "r", "pullNumber": 7}}
+    res, calls = guard_run(repo, payload, ["CLAUDE.md"])
+    assert res.returncode == 0 and calls == ""
+
+
+def test_git_route_sees_a_rule_file_moved_out_of_claude(repo, tmp_path):
+    """A rename is reported under its old path too, so moving .claude/rules/critical.md away is caught."""
+    render(repo, autonomy="guided")
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+    git = lambda *a: subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@e", *a], cwd=repo,  # noqa: E731
+                                    check=True, capture_output=True)
+    import tempfile
+    git("commit", "-q", "-m", "base")
+    origin = Path(tempfile.mkdtemp()) / "origin.git"
+    git("clone", "-q", "--bare", str(repo), str(origin))
+    git("remote", "add", "origin", str(origin))
+    git("checkout", "-q", "-b", "feature")
+    git("mv", ".claude/rules/critical.md", "docs/critical.md")
+    git("commit", "-q", "-m", "move the rule out")
+    git("push", "-q", "origin", "feature:refs/pull/7/head")
+    git("checkout", "-q", "main")
+    payload = {"tool_name": "mcp__github__merge_pull_request", "tool_input": {"pullNumber": 7}}
+    res, _ = guard_run(repo, payload, gh_fails=True)
+    assert res.returncode == 2 and ".claude/rules/critical.md" in res.stderr, res.stderr
