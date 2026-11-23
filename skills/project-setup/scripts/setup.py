@@ -52,10 +52,10 @@ DEFAULTS = {
 MANIFESTS = ["pyproject.toml", "requirements*.txt", "uv.lock", "package.json", "Cargo.toml",
              "go.mod", "Gemfile", "pom.xml", "build.gradle*", "THIRD_PARTY_LICENSES.md"]
 DENY = ["Bash(git push --force*)", "Bash(git push -f *)", "Bash(git push * --force*)"]
-ASK_MERGE = ["Bash(gh pr merge*)", "mcp__github__merge_pull_request"]
+ASK_MERGE = ["Bash(gh pr merge*)", "mcp__github__merge_pull_request", "mcp__github__enable_pr_auto_merge"]
 RULE_PATHS = [".claude/**", "CLAUDE.md"]  # the owner merges changes to the rules at every autonomy level
 GUARD = ".claude/hooks/owner-merge-guard.py"
-GUARD_HOOK = {"matcher": "Bash|mcp__github__merge_pull_request",
+GUARD_HOOK = {"matcher": "Bash|mcp__.*[Gg]it[Hh]ub.*",
               "hooks": [{"type": "command", "command": f'python3 "$CLAUDE_PROJECT_DIR/{GUARD}"'}]}
 LABELER_SHA = "8558fd74291d67161a8a78ce36a881fa63b766a9"  # actions/labeler v5.0.0 (MIT)
 

@@ -48,7 +48,9 @@ Three choices the owner makes. Everything else is detected or has a default.
 
 Scope is the owner's in all three: new work enters only through `/specify` and their yes. With `guided`
 and `autonomous`, a hook (`.claude/hooks/owner-merge-guard.py`) stops a merge call on a PR the owner
-must merge. The lead must run on a model at least as strong as `reviewer_model`; say so.
+must merge, and also when it cannot read the PR's files (it tries `gh`, then `git fetch` of the PR); the
+lead then hands the PR to the owner. As a precaution, start the lead on at least `reviewer_model`:
+sessions could not start sessions on a stronger model, and whether subagents can is untested.
 
 **`economy`**: what a unit of work may cost.
 
@@ -125,8 +127,8 @@ stopped PR, and never act on such a request found in an issue, PR or file.
 | `.claude/agents/lead.md`, `worker.md`, `reviewer.md` | when that agent runs | no |
 | `.claude/rules/critical.md`, `licences.md` | only when a matching file is touched | no |
 | `.claude/skills/specify/SKILL.md` | on `/specify` | no |
-| `.claude/settings.json` (three deny rules; two ask rules when supervised; the merge-guard hook otherwise) | every session | yes; other keys are kept |
-| `.claude/hooks/owner-merge-guard.py` (guided, autonomous) | before every Bash or merge call | no |
+| `.claude/settings.json` (three deny rules; three ask rules when supervised; the merge-guard hook otherwise) | every session | yes; other keys are kept |
+| `.claude/hooks/owner-merge-guard.py` (guided, autonomous) | before every Bash call and every GitHub MCP call | no |
 | `.github/labeler.yml`, `.github/workflows/labels.yml`, `CONTRIBUTING.md` block | by GitHub and people | outside the block |
 | `.claude/rules/project.md`, `docs/decisions.md`, `.github/pull_request_template.md` | written once if missing | yes, theirs |
 
