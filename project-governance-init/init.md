@@ -82,7 +82,15 @@ rule exists to get real decisions, not to block when there is nobody to decide.
    how threads are started and how shared files travel (reference file,
    section 10). For an in-repo workspace also confirm `default_branch` and the
    `governance_branch` that working files are committed on (default
-   `governance`).
+   `governance`), and ask where the Claude Code sessions run
+   (`claude_code_host`): `local`, on the owner's computer, or `cloud`, at
+   claude.ai/code. For `cloud`, skip the local OS, shell and clone-path
+   questions; say that nothing can run on the owner's computer, so checks that
+   need the desktop app or local hardware go to CI or become owner hand steps
+   (`THR-17`), and that the scaffold writes `cloud_environment.md` with what
+   to set up once. Tokens per turn are the same either way; a cloud session
+   also pays for cloning the repository when it starts, and it keeps running
+   when the owner's computer sleeps (reference file, section 10).
 2. **Model routing and token economy, decoupled.** The owner chooses the
    models; never fill them in silently. Show the three presets from
    `generate_project_rules.py --model-presets` (`economy`, `balanced`, `max`) as one decision card with

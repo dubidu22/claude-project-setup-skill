@@ -444,6 +444,24 @@ confirmed.
 | Shared files | the Project's files; one writer per file | a git branch (below) |
 | Planned compaction | not available: no `THR-11` | `/compact`, typed by the owner (`THR-11`) |
 
+**Claude Code on the owner's computer or in the cloud (`claude_code_host`).**
+Both run the same rules on the same git branches. The differences are where
+work can run and what a session costs to start:
+
+| | `local` | `cloud` (claude.ai/code, `claude --cloud`) |
+|---|---|---|
+| Runs the desktop app, uses local hardware | yes | no: CI or an owner hand step (`THR-17`) |
+| Tools | whatever the owner has installed | the cloud environment's setup script, cached after the first run |
+| A session when the owner's computer sleeps | stops; picked up from the files later | keeps running |
+| Extra cost of a new session | none | cloning the repository and, the first time, the setup |
+| Tokens per turn | same | same |
+
+In both, the expensive parts are the ones the earlier sections name: how
+often the coordinator wakes, how much each thread reads, and how many checks
+run in the model instead of in scripts and CI. A claude.ai Project costs more
+per piece of work than either, because every chat carries the project
+knowledge, checks stay prose and the owner relays files by hand.
+
 **Shared files (`THR-04`, `THR-13`).** Every file has one writer. A thread
 writes its own plan, its own round reports and its own ledger entries; the
 state file and `kb/pending-decisions.md` are the coordinator's; the decision
