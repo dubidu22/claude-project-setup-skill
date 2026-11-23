@@ -12,6 +12,7 @@ into the target directory:
                                   a new Claude Code session to its role extract
       dispatcher_instructions.md  starter block for the Dispatcher chat (only with dispatcher: true)
       advisor_instructions.md     starter block for an Advisor session, with the brief format (only with advisor: true)
+      cloud_environment.md        what to set up for cloud sessions and what runs elsewhere (only with claude_code_host: cloud)
       plans/README.md
       plans/contract-template.yaml  acceptance contract template (only with acceptance_contracts: true)
       tools/contract_tool.py      contract lint, hand-backs, issue drafts (only with acceptance_contracts: true)
@@ -65,12 +66,13 @@ OPTIONAL_TEMPLATES = {
     "plans/contract-template.yaml": "acceptance_contracts",
     "dispatcher_instructions.md": "dispatcher",
     "advisor_instructions.md": "advisor",
+    "cloud_environment.md": "cloud",
     "kb/verification.md": "runtime_verification",
     "kb/features/README.md": "runtime_verification",
     "claude-md-snippet.md": "in_repo",
 }
 # Generated from the config and never edited by threads: safe to overwrite on --refresh.
-REFRESHABLE = {"project_instructions.md", "dispatcher_instructions.md", "advisor_instructions.md", "plans/README.md",
+REFRESHABLE = {"project_instructions.md", "dispatcher_instructions.md", "advisor_instructions.md", "cloud_environment.md", "plans/README.md",
                "plans/contract-template.yaml", "kb/README.md", "ledger/README.md", "claude-md-snippet.md"}
 LEFTOVERS = {
     "ledger/implementation.md": "an older ledger table; history only, new entries go to ledger/prs/",
@@ -212,7 +214,7 @@ def template_values(cfg: dict[str, Any]) -> tuple[dict[str, str], dict[str, bool
     flags = {"acceptance_contracts": contracts, "dispatcher": disp, "compaction": every > 0,
              "in_repo": in_repo, "escalation": bool(esc), "contracts_in_repo": contracts and in_repo,
              "runtime_verification": bool(cfg["runtime_verification"]), "seam_audit": bool(cfg["seam_groups"]),
-             "advisor": bool(cfg["advisor"])}
+             "advisor": bool(cfg["advisor"]), "cloud": cfg["claude_code_host"] == "cloud"}
     return values, flags
 
 

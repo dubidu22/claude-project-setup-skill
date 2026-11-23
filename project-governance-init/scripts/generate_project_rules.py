@@ -305,6 +305,7 @@ def default_config(project_name: str = "my-project") -> dict[str, Any]:
         "timezone": "UTC",
         "local_os_shell": "unspecified",
         "local_clone_path": f"~/projects/{project_name}",
+        "claude_code_host": "local",
         "workspace_root": "/mnt/project-files",
         "environment": "",
         "default_branch": "main",
@@ -380,6 +381,7 @@ CHOICES = {
     "profile_key": tuple(TOKEN_PROFILES),
     "model_preset": (*MODEL_PRESETS, "custom"),
     "environment": ENVIRONMENTS,
+    "claude_code_host": ("local", "cloud"),
 }
 NON_EMPTY_LISTS = {"execution_lanes", "ownership_labels", "target_platforms"}
 NON_EMPTY_STRINGS = {"project_name", "repo_slug", "owner_name", "workspace_root", "default_branch", "governance_branch",
@@ -449,6 +451,9 @@ def validate_config(cfg: dict[str, Any]) -> None:
                             "it has to start. A session starts sessions only on its own model or a cheaper one, so the owner "
                             "would have to start those threads by hand. Leave dispatcher_model empty (it then takes the "
                             "strongest worker model) or name a model at least that strong")
+    if cfg.get("claude_code_host") == "cloud" and cfg.get("environment") == "claude_ai_project":
+        problems.append("claude_code_host=cloud needs the workspace in the repository (workspace_root like ./governance); "
+                        "a claude.ai Project has no Claude Code host")
     for glob in cfg.get("governance_paths") if isinstance(cfg.get("governance_paths"), list) else []:
         if isinstance(glob, str) and (glob.startswith("/") or ".." in glob.split("/") or glob.strip() in ("*", "**", "**/*")):
             problems.append(f"governance_paths: '{glob}': a glob is a path from the repository root, without a leading / "
@@ -617,6 +622,10 @@ def run_wizard() -> dict[str, Any]:
         "Shared workspace root (claude.ai Project: /mnt/project-files; repo checkout: e.g. ./governance)",
         "/mnt/project-files",
     )
+    claude_code_host = "local"
+    if derive_environment(workspace_root) == "claude_code":
+        claude_code_host = ask_choice("Where do the Claude Code sessions run (local: your computer; cloud: claude.ai/code)",
+                                      ["local", "cloud"], "local")
 
     print("\nStack presets:")
     for key, preset in STACK_PRESETS.items():
@@ -768,6 +777,7 @@ def run_wizard() -> dict[str, Any]:
         "local_os_shell": local_os_shell,
         "local_clone_path": local_clone_path,
         "workspace_root": workspace_root,
+        "claude_code_host": claude_code_host,
         "stack_key": stack_key,
         "fast_checks": fast_checks,
         "target_platforms": target_platforms,
@@ -1215,8 +1225,9 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
         f"  environment: {cfg['environment']}",
         f"  target_platforms: {yaml_list(cfg['target_platforms'])}",
         f"  fast_checks: {yaml_quote(cfg['fast_checks'])}",
-        f"  local_environment: {yaml_quote(cfg['local_os_shell'])}",
-        f"  local_clone_path: {yaml_quote(cfg['local_clone_path'])}",
+        *([f"  claude_code_host: {cfg['claude_code_host']}"] if cfg["environment"] == "claude_code" else []),
+        *([f"  local_environment: {yaml_quote(cfg['local_os_shell'])}",
+           f"  local_clone_path: {yaml_quote(cfg['local_clone_path'])}"] if cfg["claude_code_host"] != "cloud" else []),
         f"  execution_lanes: {yaml_list(cfg['execution_lanes'])}",
         f"  file_ownership_labels: {yaml_list(labels)}",
         f"  lane_mapping_note: {yaml_quote(cfg['lane_mapping_note'])}",
@@ -1346,6 +1357,12 @@ def render_rules_yaml(cfg: dict[str, Any], today: str | None = None) -> str:
                "file kept and named in the PR body. A PR that adds or changes such a feature updates " + ws
                + "/kb/features/ in the same change. A journey that fails is reported, never weakened to pass.")
           if cfg["runtime_verification"] else []),
+        *(rule("THR-17", "implementation,review",
+               "Sessions run in the cloud: nothing runs on the owner's computer. A check that needs the desktop app, "
+               "a display or local hardware runs in CI or becomes an owner hand step with its starter block, and is "
+               "never reported as run. Tools come from the cloud environment's setup script; a missing tool is "
+               "reported to the coordinator, not installed around.")
+          if cfg["claude_code_host"] == "cloud" else []),
         *rule("CI-01", "all",
               "Fast checks run automatically on PRs; full target_platforms matrix runs on " + main_branch
               + ", release/**, and via explicit full-CI dispatch/label on critical PRs (including critical PRs into "
@@ -1785,7 +1802,7 @@ def derive_config(rules_path: Path, state_path: Path | None) -> tuple[dict[str, 
         notes.append("labels dropped (not of the form lane:<name>): " + ", ".join(l for l in labels if l not in good))
     put("lane_mapping_note", prof.get("lane_mapping_note"), str)
     put("workspace_root", prof.get("workspace_root"), str)
-    for key in ("environment", "default_branch", "governance_branch"):
+    for key in ("environment", "default_branch", "governance_branch", "claude_code_host"):
         if prof.get(key):
             cfg[key] = str(prof[key])
     if isinstance(prof.get("critical_paths"), list):
