@@ -1,0 +1,11 @@
+{
+  "name": "claude-project-setup-skill",
+  "owner": { "name": "dubidu22" },
+  "plugins": [
+    {
+      "name": "project-setup",
+      "source": "./",
+      "description": "Set up a repository so Claude Code runs it as a lead, workers and an independent reviewer."
+    }
+  ]
+}

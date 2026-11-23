@@ -1,68 +1,75 @@
 # claude-project-setup-skill
 
-A Claude skill, `project-governance-init`, that sets up, changes, migrates or audits the governance for a project run by several Claude threads (a coordinator chat plus implementation, review, KB and audit threads working through lanes, PR review rounds and a decision log), and turns feature ideas into owner-approved acceptance contracts.
+A Claude Code plugin with one skill, `project-setup`. It sets a repository up so that Claude Code runs it as a small team: a **lead** session that coordinates, **worker** subagents that implement one issue each, and a **reviewer** subagent that did not write the code and cannot edit it. Work starts only from GitHub issues with acceptance criteria the owner approved.
 
-## What it does
-
-One skill, three jobs, one shared knowledge base:
-
-- **Init** (`init.md`): a six-stage walkthrough (identity, model routing vs. token economy, autonomy gates, lanes and labels, quality gates, generation) that renders `claude-project-rules.yaml`, a per-role extract of it for each thread type, and `project-state.yaml`, and scaffolds the shared workspace: `plans/`, `kb/`, the ledger, `roadmap.yaml`, coordinator instructions, GitHub setup files, and the acceptance-contract method, template and checker. It also changes settings in a running project (`--set model_preset=economy`, `--set profile_key=frugal`, ...) with a preview of what changes, and migrates an older or hand-edited ruleset onto the generator after showing the difference. Live state, the decision log and ledgers are kept.
-- **Specify** (`specify.md`): turns a brief feature idea or a change of plans into an acceptance contract with researched, testable criteria, a few work packages that become GitHub issues, and an updated roadmap. The owner sees every criterion and verify step and approves by quoting the contract's hash; issues are created only on a separate yes, after a pre-flight check, and their numbers are recorded.
-- **Audit** (`audit.md`): checks an existing ruleset, state file, roadmap, acceptance contracts and ledger for contradictions, unclear roles, stale state, untestable criteria, contracts edited after approval and token bloat. Read-only: it reports and proposes exact fixes, and changes nothing.
-
-All three work from the same model in `references/`: roles and lanes, coordinator load and token economy, cache-aware thread habits, operating mechanics per environment, and owner-approved acceptance contracts per milestone.
-
-## Layout
-
-```
-project-governance-init/
-├── SKILL.md                       picks init, specify or audit
-├── init.md                        set up, change settings, migrate (writes files)
-├── specify.md                     idea or plan change -> criteria, issues, roadmap (drafts until approved)
-├── audit.md                       check and report (read-only)
-├── scripts/
-│   ├── generate_project_rules.py  config JSON -> rules, per-role extracts, state; --set, --dry-run, --derive-config
-│   ├── scaffold_workspace.py      renders assets/templates into the workspace; --github writes github-setup/
-│   ├── audit_rules.py             mechanical ruleset check, read-only
-│   ├── contract_tool.py           contract lint, owner view, hash, pickup check, comparison with the default branch, issue drafts and pre-flight, roadmap check, /goal line
-│   ├── ledger_tool.py             tables, statistics (rounds, reverts, repeated findings, whether a fix held, owner overrides), the merge gate, the triage of leftovers, the audit flags and a short status of open PRs from the ledger entries, read-only
-│   ├── move_workspace.py          moves a claude.ai Project's workspace into the repository: from a folder, a flat download or in place, also with an older ruleset (preview, then --apply); refuses secrets
-│   ├── seam_audit.py              brief, cited decisions and report check for the periodic read-only audit of files that work together
-│   ├── repo_readiness.py          does the repository have CI, tests, a linter, a way to run it? read-only
-│   └── pr_checks.py               pull-request checks for the project's CI: title, closing keywords, lane label, file ownership, critical paths, new markdown files, narrating comments and dependency manifests (warnings); exemptions labelled sanctioned or debt; `--self-test` proves each check on a known-bad pull request
-├── references/
-│   ├── governance-model.md        the model, the five invariants, rule catalog, operating mechanics, what is enforced by what, checks before prose
-│   ├── acceptance-contracts.md    criteria, work packages, approval, freeze, roadmap
-│   └── audit-checklist.md         semantic checks and report format
-├── assets/templates/              scaffold templates
-└── evals/                         test cases (claude plugin eval layout)
-tests/                             pytest suite for the scripts and the eval fixtures
-```
+It is for personal and non-commercial projects, in two sizes: a small private project, and a larger public open-source one.
 
 ## Install
 
-Package the folder with the skill-creator `package_skill.py` script, or copy `project-governance-init/` into your skills directory.
+In Claude Code:
 
-## Run the tests
+```
+/plugin install project-setup --marketplace dubidu22/claude-project-setup-skill
+```
 
-Two kinds of test, for two different things.
+Or copy `skills/project-setup/` into your skills directory. On claude.ai, zip that folder and upload it as a skill.
 
-**The scripts** (fast, deterministic, also run by CI on every push and pull request):
+## Use
+
+In the repository you want to set up:
+
+```
+/project-setup
+```
+
+It looks at the repository, shows one table of what it will write, and asks you to correct it. You make three choices:
+
+| Choice | Options | Decides |
+|---|---|---|
+| `size` | `solo`, `open-source` | which modules are written |
+| `autonomy` | `supervised`, `guided`, `autonomous` | who approves plans and who merges |
+| `economy` | `frugal`, `balanced`, `thorough` | models, review rounds, workers in parallel |
+
+Later: `/project-setup change <what you want>` shows the effect and waits for your yes, and `/project-setup check` reports drift and mistakes and changes nothing. The full tables are in [`skills/project-setup/SKILL.md`](skills/project-setup/SKILL.md).
+
+## What it writes into your repository
+
+About a dozen small files (under 16 KB in total), all plain text you can read:
+
+| File | What it is |
+|---|---|
+| `.claude/project-setup.json` | your settings; the only file you change |
+| `CLAUDE.md` (one marked block) | the eleven or twelve rules every session follows |
+| `.claude/agents/lead.md`, `worker.md`, `reviewer.md` | the three roles, with their models and tool limits |
+| `.claude/rules/critical.md`, `licences.md` | rules that load only when a matching file is touched |
+| `.claude/skills/specify/SKILL.md` | `/specify <idea>`: idea to issues with acceptance criteria |
+| `.claude/settings.json` | deny rules for force pushes; ask-before-merge when supervised |
+| `.github/labeler.yml`, `.github/workflows/labels.yml`, `CONTRIBUTING.md` block | open-source size only |
+| `.claude/rules/project.md`, `docs/decisions.md`, `.github/pull_request_template.md` | written once, then yours |
+
+There is no state file: the milestone, issues, pull requests and labels on GitHub are the state.
+
+One step stays yours: protect the default branch on GitHub (require a pull request, block force pushes). The files ask; only GitHub enforces.
+
+## Version 1
+
+Version 1 (`project-governance-init`: a generated YAML ruleset, eight thread roles, acceptance contracts frozen by hash, a ledger) is the last commit on `main` before this version. Version 2 does not migrate a version-1 workspace; a project running on it can stay there.
+
+## Development
 
 ```bash
-pip install pytest pyyaml
+pip install pytest
 python3 -m pytest tests -q
 ```
 
-They cover the generator (type checks, quoting, the self-check of its own output, options, versioning, migration), the audit, the contract tool (the freeze, the owner view, issues, reading YAML with and without PyYAML), the scaffold and the ledger tool. They also build every eval fixture the way the eval runner does and check that it is sound, so fixtures cannot go stale.
-
-**The skill's behaviour** (slow, needs Claude Code v2.1.269 or later), inside `project-governance-init/`:
+The tests cover the script: every setting changes what it says it changes, render keeps files that are not its own, and bad configs are refused. How the skill behaves in a live session is covered by the four cases in `evals/`:
 
 ```bash
 claude plugin eval . --allow-tools Write,Edit,Bash --scaffold
 ```
 
-How to record a run, the four-case canary and how to classify failures: [eval-results/README.md](eval-results/README.md). No run has been recorded yet.
+No eval run has been recorded for version 2 yet.
 
+## Licences
 
-The eval cases cover the unattended paths (owner cannot reply), the interactive ones (stage 1 of the walkthrough, a settings preview that waits for a yes, the first interview question, approval with and without the hash, issue creation), and routing (bare invocation, an ordinary feature request that must not start specify, an audit asked to fix things). Fixtures that depend on the generator are built at test time by each case's `place-files.sh`.
+This repository: MIT. The label workflow it can write into a project uses [`actions/labeler`](https://github.com/actions/labeler) (MIT), pinned to a commit.

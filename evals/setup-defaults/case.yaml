@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: setup-defaults
+expected_outcome: |
+  With "use your defaults" the assistant does not hold an interview: it runs detect, writes
+  .claude/project-setup.json, renders, and hands over naming size, autonomy, economy, the assumptions,
+  the branch-protection hand step and `/specify` as the next thing to type.
