@@ -262,6 +262,17 @@ def test_detect_proposes_checks_lanes_and_size(repo, capsys):
     assert found["found"]["config"] is False
 
 
+def test_detect_uses_local_branch_without_a_remote(tmp_path, capsys):
+    subprocess.run(["git", "init", "-q", "-b", "master", str(tmp_path)], check=True)
+    assert setup.main(["detect", str(tmp_path)]) == 0
+    assert json.loads(capsys.readouterr().out)["proposed"]["default_branch"] == "master"
+
+
+def test_skill_folder_has_one_skill_md():
+    found = sorted(p.relative_to(ROOT).as_posix() for p in (ROOT / "skills/project-setup").rglob("SKILL.md"))
+    assert found == ["skills/project-setup/SKILL.md"], "claude.ai refuses an upload with a second SKILL.md"
+
+
 @pytest.mark.parametrize("glob,path,expected", [
     ("src/**", "src/a/b.py", True),
     ("src/*.py", "src/a/b.py", False),

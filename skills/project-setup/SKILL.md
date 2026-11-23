@@ -8,14 +8,14 @@ description: >
   open-source one. Use for "set up this project", "project setup", "make Claude merge on
   its own", "use cheaper models here", "add lanes" or "check the project setup". Not for
   ordinary coding tasks, and not for a single CLAUDE.md (use /init for that).
-argument-hint: "[set up | change <setting> | check]"
 ---
 
 # Project setup
 
 Three jobs. All settings live in one file in the target repository, `.claude/project-setup.json`;
 `scripts/setup.py` turns it into the project files. Never edit a generated file by hand: change
-the config and render again.
+the config and render again. `${CLAUDE_SKILL_DIR}` is the folder this file is in; where it is not
+filled in (outside Claude Code), use that folder's path.
 
 | The user wants | Do |
 |---|---|

@@ -6,13 +6,22 @@ It is for personal and non-commercial projects, in two sizes: a small private pr
 
 ## Install
 
-In Claude Code:
+In a Claude Code session (v2.1.275 or later):
 
 ```
 /plugin install project-setup --marketplace dubidu22/claude-project-setup-skill
 ```
 
-Or copy `skills/project-setup/` into your skills directory. On claude.ai, zip that folder and upload it as a skill.
+Or from your shell, then start a new session:
+
+```
+claude plugin marketplace add dubidu22/claude-project-setup-skill
+claude plugin install project-setup@claude-project-setup-skill
+```
+
+Run the setup in Claude Code on your own computer: cloud sessions (claude.ai/code) do not load installed plugins. The files it writes into your repository work in cloud sessions too.
+
+Without the plugin, copy `skills/project-setup/` into `~/.claude/skills/`, or zip that folder and upload it as a skill on claude.ai. Python 3.10 or later and git must be installed where it runs.
 
 ## Use
 

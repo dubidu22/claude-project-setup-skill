@@ -197,7 +197,7 @@ def desired(repo: Path, cfg: dict) -> dict[str, str | None]:
         ".claude/agents/worker.md": tpl("agents/worker.md"),
         ".claude/agents/reviewer.md": tpl("agents/reviewer.md"),
         ".claude/rules/critical.md": tpl("rules/critical.md"),
-        ".claude/skills/specify/SKILL.md": tpl("skills/specify/SKILL.md"),
+        ".claude/skills/specify/SKILL.md": tpl("specify-skill.md"),
         ".claude/rules/licences.md": tpl("rules/licences.md") if cfg["licence_gate"] else None,
         GUARD: tpl("hooks/owner-merge-guard.py") if cfg["autonomy"] != "supervised" else None,
         ".github/labeler.yml": labeler_config(cfg) if cfg["label_workflow"] else None,
@@ -397,10 +397,9 @@ def cmd_detect(repo: Path) -> int:
 
     branch = "main"
     try:
-        ref = subprocess.run(["git", "-C", str(repo), "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
-                             capture_output=True, text=True)
-        if ref.returncode == 0 and ref.stdout.strip():
-            branch = ref.stdout.strip().split("/", 1)[1]
+        found = [subprocess.run(["git", "-C", str(repo), "symbolic-ref", "--short", ref], capture_output=True, text=True)
+                 .stdout.strip() for ref in ("refs/remotes/origin/HEAD", "HEAD")]
+        branch = next((b.removeprefix("origin/") for b in found if b), branch)
     except OSError:
         pass
 
