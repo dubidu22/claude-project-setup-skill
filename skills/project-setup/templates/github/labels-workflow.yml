@@ -1,0 +1,17 @@
+# {{mark}}
+# Adds `critical` and `lane:*` labels from the files a pull request changes (.github/labeler.yml).
+name: labels
+
+# pull_request_target so that pull requests from forks get labels too. The job checks out no code.
+on: pull_request_target  # zizmor: ignore[dangerous-triggers]
+
+permissions: {}
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/labeler@{{labeler_sha}}  # v5.0.0

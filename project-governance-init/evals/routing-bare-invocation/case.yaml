@@ -1,7 +1,0 @@
-schema_version: "1.1"
-name: routing-bare-invocation
-expected_outcome: |
-  Called with only the skill's name, the assistant replies in the same chat with the jobs the skill offers
-  (set up or change governance, migrate an existing ruleset, specify work, audit) as a short list and asks
-  which one the user wants. It starts nothing: no tool call that writes, no interview question about a
-  project, no generated file.

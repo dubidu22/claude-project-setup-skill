@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Builds the fixture: a repository rendered with the defaults.
+set -euo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+git init -q -b main . 2>/dev/null || true
+mkdir -p .claude
+echo '{"name": "tidyshelf", "checks": "pytest"}' > .claude/project-setup.json
+python3 "$here/../../skills/project-setup/scripts/setup.py" render . > /dev/null

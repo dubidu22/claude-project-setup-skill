@@ -1,0 +1,8 @@
+{
+  "name": "project-setup",
+  "description": "Set up a repository so Claude Code runs it as a lead, workers and an independent reviewer: agents, path-scoped rules, a /specify command and permission rules, sized for a solo project or a public open-source one.",
+  "version": "2.0.0",
+  "author": { "name": "dubidu22" },
+  "repository": "https://github.com/dubidu22/claude-project-setup-skill",
+  "license": "MIT"
+}
